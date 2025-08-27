@@ -1,0 +1,11 @@
+# All generated files
+/datasets
+/embeddings
+
+# logs
+/logs
+/scripts/logs
+/scripts/data/logs
+
+# pycache
+/models/pycache
