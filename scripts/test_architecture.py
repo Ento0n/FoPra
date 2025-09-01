@@ -10,6 +10,7 @@ import torch.nn.functional as F
 import wandb
 from models.linearFC import SimpleInteractionNet
 from models.baseline_fc_conv import baseline2d
+from models.richoux_fc import RichouxInteractionNet
 from functools import partial
 
 
@@ -125,7 +126,9 @@ def setup_model(train_loader, device, run, residue):
     if residue:
         model = baseline2d(embed_dim).to(device)
     else:
-        model = SimpleInteractionNet(embed_dim).to(device)
+        # model = SimpleInteractionNet(embed_dim).to(device)
+        model = RichouxInteractionNet(embed_dim).to(device)
+
     
     # Initialize optimizer and loss function
     optimizer = optim.Adam(model.parameters(), lr=run.config.learning_rate)

@@ -4,13 +4,16 @@ import torch.nn as nn
 
 # 1. Define a simple feed-forward classifier
 class SimpleInteractionNet(nn.Module):
-    def __init__(self, embed_dim, hidden_dim=128):
+    def __init__(self, embed_dim, hidden_dim=1536):
         super().__init__()
         self.fc = nn.Sequential(
             nn.Linear(embed_dim * 2, hidden_dim),
             nn.ReLU(inplace=True),
             nn.Dropout(0.3),
-            nn.Linear(hidden_dim, 2)
+            nn.Linear(hidden_dim, hidden_dim / 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(hidden_dim / 2, 2)  # Binary classification (interaction vs no interaction)
         )
 
     def forward(self, rec_emb, lig_emb):
