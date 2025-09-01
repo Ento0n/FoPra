@@ -14,12 +14,8 @@ class SimpleInteractionNet(nn.Module):
         )
 
     def forward(self, rec_emb, lig_emb):
-        # e.g. rec_emb shape: torch.Size([2, 596, 1536]), lig_emb shape: torch.Size([2, 131, 1536])
-        # x = torch.cat([rec_emb, lig_emb], dim=1)  # Concatenate embeddings along the sequence length dimension
-        # e.g. x shape: torch.Size([2, 727, 1536])
-
-        # e.g. shape of rec_emb and lig_emb: torch.Size([2, 1536])
+        # e.g. shape of rec_emb and lig_emb: torch.Size([B, 1536])
         x = torch.cat([rec_emb, lig_emb], dim=1)  # Concatenate embeddings along the embedding dimension
-        # e.g. x shape: torch.Size([2, 3072])
+        # e.g. x shape: torch.Size([B, 3072])
 
         return self.fc(x) # shape: (B, 2)

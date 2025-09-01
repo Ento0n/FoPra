@@ -46,8 +46,8 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, kernel_size, wand_mo
         # Track hyperparameters and run metadata.
         config={
             "learning_rate": 0.0001,
-            "architecture": "baseline2d",
-            "dataset": "Pinder10k",
+            "architecture": "baselineFC",
+            "dataset": "Pinder_fully_deleaked",
             "batch_size": 4,
             "epochs": 5,
         },
@@ -222,19 +222,19 @@ def test(device, model, test_loader, residue):
 def main():
 
     # Arguments
-    residue = True
+    residue = False
     if residue:
         embedding_type = "residue"
     else:
         embedding_type = "mean"
 
-    train_csv = "/nfs/scratch/pinder/negative_dataset/datasets/train_dataset.csv"
-    val_csv = "/nfs/scratch/pinder/negative_dataset/datasets/val_dataset.csv"
-    test_csv = "/nfs/scratch/pinder/negative_dataset/datasets/test_dataset.csv"
-    cache_dir = f"/nfs/scratch/pinder/negative_dataset/embeddings/sequence/ESM3/{embedding_type}"
+    train_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/train.csv"
+    val_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/val.csv"
+    test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test.csv"
+    cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
 
     kernel_size = 2  # Default kernel size, can be adjusted
-    wandb_mode = "online"  # Change to "online" to enable WandB logging, "disabled" to disable it
+    wandb_mode = "disabled"  # Change to "online" to enable WandB logging, "disabled" to disable it
 
 
     # PIPELINE
