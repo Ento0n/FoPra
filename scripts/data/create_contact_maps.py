@@ -43,7 +43,7 @@ def pdb_to_contact_matrix(pdb_path, threshold=8.0):
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Create contact maps from PDB files")
-    parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/datasets/deleak_uniprot/deleak_cdhit', help='Base path for dataset splits')
+    parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit', help='Base path for dataset splits')
     parser.add_argument('--pdb_path', type=str, default='/nfs/scratch/pinder/pinder/2024-02/pdbs', help='Path for PDB files')
     args = parser.parse_args()
 
@@ -52,7 +52,7 @@ if __name__ == "__main__":
     val_df = pd.read_csv(os.path.join(args.path, "val.csv"))
     test_df = pd.read_csv(os.path.join(args.path, "test.csv"))
 
-    ids = pd.concat([train_df['id'], val_df['id'], test_df['id']]).unique()
+    ids = pd.concat([train_df['entry'], val_df['entry'], test_df['entry']]).unique()
 
     # Create folder for contact matrices if not existent
     os.makedirs(os.path.join(args.path, "contact_maps"), exist_ok=True)

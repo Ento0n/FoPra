@@ -28,7 +28,7 @@ class SequencePairDataset(Dataset):
             'label': torch.tensor(row['label'], dtype=torch.long)
         }
 
-def setup(cache_dir, train_csv, val_csv, test_csv, residue, kernel_size, wand_mode="online"):
+def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wand_mode="online"):
     #################__Torch device__################
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,49 +67,76 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, kernel_size, wand_mo
     val_dataset   = SequencePairDataset(val_df)
     test_dataset  = SequencePairDataset(test_df)
 
-    train_loader = DataLoader(train_dataset, batch_size=run.config.batch_size, shuffle=True, collate_fn=partial(collate_fn, cache_dir=cache_dir, residue=residue, kernel_size=kernel_size))
-    val_loader   = DataLoader(val_dataset,   batch_size=run.config.batch_size,               collate_fn=partial(collate_fn, cache_dir=cache_dir, residue=residue, kernel_size=kernel_size))
-    test_loader  = DataLoader(test_dataset,  batch_size=run.config.batch_size,               collate_fn=partial(collate_fn, cache_dir=cache_dir, residue=residue, kernel_size=kernel_size))
+    collate = partial(collate_fn, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size)
+
+    train_loader = DataLoader(train_dataset, batch_size=run.config.batch_size, shuffle=True, collate_fn=collate)
+    val_loader   = DataLoader(val_dataset,   batch_size=run.config.batch_size,               collate_fn=collate)
+    test_loader  = DataLoader(test_dataset,  batch_size=run.config.batch_size,               collate_fn=collate)
 
     return device, run, train_loader, val_loader, test_loader
 
+def aa_one_hot(seq: str) -> torch.Tensor:
+    """
+    Convert an amino acid sequence into a one-hot encoded tensor.
+    
+    Args:
+        seq (str): Amino acid sequence (e.g. "MTEYK").
+    
+    Returns:
+        torch.Tensor: Shape (L, 20), where L = len(seq).
+    """
+    # Convert sequence to indices
+    idxs = [aa_to_idx[aa] for aa in seq]
+    idxs = torch.tensor(idxs, dtype=torch.long)
 
+    # One-hot encode
+    one_hot = F.one_hot(idxs, num_classes=len(AA_ALPHABET))
+    return one_hot.float()  # often float is convenient for models
 
 # custom collate function to handle variable-length sequences
-def collate_fn(batch, cache_dir, residue, kernel_size):
-
+def collate_fn(batch, cache_dir, residue, one_hot, kernel_size):
     labels = torch.stack([b["label"] for b in batch])
     recs = []
     ligs = []
-    for b in batch:
-        # generate MD5 key and retrieve embeddings
-        # receptor
-        key = hashlib.md5(b["receptor_seq"].encode()).hexdigest()
-        recs.append(torch.load(
-            os.path.join(cache_dir, f"{key}.pt")
-        )["embedding"])
-        # ligand
-        key = hashlib.md5(b["ligand_seq"].encode()).hexdigest()
-        ligs.append(torch.load(
-            os.path.join(cache_dir, f"{key}.pt")
-        )["embedding"])
 
-    # pad sequences to the maximum length in the batch, consider kernel size
-    if residue:
-        # Compute max lengths and round up to next multiple of kernel_size
-        max_rec_len = max(rec.size(0) for rec in recs)
-        max_lig_len = max(lig.size(0) for lig in ligs)
+    if not one_hot:
+        for b in batch:
+            # generate MD5 key and retrieve embeddings
+            # receptor
+            key = hashlib.md5(b["receptor_seq"].encode()).hexdigest()
+            recs.append(torch.load(
+                os.path.join(cache_dir, f"{key}.pt")
+            )["embedding"])
+            # ligand
+            key = hashlib.md5(b["ligand_seq"].encode()).hexdigest()
+            ligs.append(torch.load(
+                os.path.join(cache_dir, f"{key}.pt")
+            )["embedding"])
 
-        # Round up to nearest multiple of `kernel_size`
-        padded_rec_len = int(math.ceil(max_rec_len / kernel_size) * kernel_size)
-        padded_lig_len = int(math.ceil(max_lig_len / kernel_size) * kernel_size)
+        # pad sequences to the maximum length in the batch, consider kernel size
+        if residue:
+            # Compute max lengths and round up to next multiple of kernel_size
+            max_rec_len = max(rec.size(0) for rec in recs)
+            max_lig_len = max(lig.size(0) for lig in ligs)
 
-        # Pad sequences to the new lengths
-        recs = [F.pad(rec, (0, 0, 0, padded_rec_len - rec.size(0))) for rec in recs]
-        ligs = [F.pad(lig, (0, 0, 0, padded_lig_len - lig.size(0))) for lig in ligs]
+            # Round up to nearest multiple of `kernel_size`
+            padded_rec_len = int(math.ceil(max_rec_len / kernel_size) * kernel_size)
+            padded_lig_len = int(math.ceil(max_lig_len / kernel_size) * kernel_size)
 
-    recs = torch.stack(recs)
-    ligs = torch.stack(ligs)
+            # Pad sequences to the new lengths
+            recs = [F.pad(rec, (0, 0, 0, padded_rec_len - rec.size(0))) for rec in recs]
+            ligs = [F.pad(lig, (0, 0, 0, padded_lig_len - lig.size(0))) for lig in ligs]
+
+        recs = torch.stack(recs)
+        ligs = torch.stack(ligs)
+    
+    else:
+        recs = [aa_one_hot(b["receptor_seq"]) for b in batch] # List of (Lr, A)
+        ligs = [aa_one_hot(b["ligand_seq"]) for b in batch] # List of (Ll, A)
+
+        recs = torch.stack([rec.mean(dim=0) for rec in recs]) # (B, A)
+        ligs = torch.stack([lig.mean(dim=0) for lig in ligs]) # (B, A)
+
     return recs, ligs, labels
 
 #######################################__Model__##################################################
@@ -223,9 +250,16 @@ def test(device, model, test_loader, residue):
 
 
 def main():
+    # global
+    global AA_ALPHABET, aa_to_idx
+
+    # Define the amino acid alphabet (can adapt if you want gaps, X, etc.)
+    AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXB"
+    aa_to_idx = {aa: i for i, aa in enumerate(AA_ALPHABET)}
 
     # Arguments
     residue = False
+    one_hot = True
     if residue:
         embedding_type = "residue"
     else:
@@ -241,7 +275,7 @@ def main():
 
 
     # PIPELINE
-    device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, residue, kernel_size, wandb_mode)
+    device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wandb_mode)
     model, optimizer, criterion = setup_model(train_loader, device, run, residue)
     train(device, run, model, optimizer, criterion, train_loader, val_loader, residue)
     test(device, model, test_loader, residue)
