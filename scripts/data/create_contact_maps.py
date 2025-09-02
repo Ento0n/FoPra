@@ -48,9 +48,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Extract unique IDs
-    train_df = pd.read_csv(args.path / "train.csv")
-    val_df = pd.read_csv(args.path / "val.csv")
-    test_df = pd.read_csv(args.path / "test.csv")
+    train_df = pd.read_csv(os.path.join(args.path, "train.csv"))
+    val_df = pd.read_csv(os.path.join(args.path, "val.csv"))
+    test_df = pd.read_csv(os.path.join(args.path, "test.csv"))
 
     ids = pd.concat([train_df['id'], val_df['id'], test_df['id']]).unique()
 
