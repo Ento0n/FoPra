@@ -67,7 +67,21 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size
     val_dataset   = SequencePairDataset(val_df)
     test_dataset  = SequencePairDataset(test_df)
 
-    collate = partial(collate_fn, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size)
+    # Compute fixed global pad lengths for one-hot case to keep model input size constant
+    pad_rec_len = None
+    pad_lig_len = None
+    if one_hot and not residue:
+        rec_max_train = train_df["receptor_seq"].str.len().max()
+        rec_max_val   = val_df["receptor_seq"].str.len().max()
+        rec_max_test  = test_df["receptor_seq"].str.len().max()
+        lig_max_train = train_df["ligand_seq"].str.len().max()
+        lig_max_val   = val_df["ligand_seq"].str.len().max()
+        lig_max_test  = test_df["ligand_seq"].str.len().max()
+        pad_rec_len = int(max(rec_max_train, rec_max_val, rec_max_test))
+        pad_lig_len = int(max(lig_max_train, lig_max_val, lig_max_test))
+        print(f"Using fixed one-hot pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}")
+
+    collate = partial(collate_fn, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
 
     train_loader = DataLoader(train_dataset, batch_size=run.config.batch_size, shuffle=True, collate_fn=collate)
     val_loader   = DataLoader(val_dataset,   batch_size=run.config.batch_size,               collate_fn=collate)
@@ -94,7 +108,7 @@ def aa_one_hot(seq: str) -> torch.Tensor:
     return one_hot.float()  # often float is convenient for models
 
 # custom collate function to handle variable-length sequences
-def collate_fn(batch, cache_dir, residue, one_hot, kernel_size):
+def collate_fn(batch, cache_dir, residue, one_hot, kernel_size, pad_rec_len, pad_lig_len):
     labels = torch.stack([b["label"] for b in batch])
     recs = []
     ligs = []
@@ -134,8 +148,15 @@ def collate_fn(batch, cache_dir, residue, one_hot, kernel_size):
         recs = [aa_one_hot(b["receptor_seq"]) for b in batch] # List of (Lr, A)
         ligs = [aa_one_hot(b["ligand_seq"]) for b in batch] # List of (Ll, A)
 
-        recs = torch.stack([rec.mean(dim=0) for rec in recs]) # (B, A)
-        ligs = torch.stack([lig.mean(dim=0) for lig in ligs]) # (B, A)
+        # Pad sequences to the global longest sequence
+        recs = [F.pad(rec, (0, 0, 0, pad_rec_len - rec.size(0))) for rec in recs] # (Lr, A) -> (padded_Lr, A)
+        ligs = [F.pad(lig, (0, 0, 0, pad_lig_len - lig.size(0))) for lig in ligs] # (Ll, A) -> (padded_Ll, A)
+
+        # flatten the one hot encoding and stack batch in 1 tensor
+        recs = torch.stack([torch.flatten(rec) for rec in recs]) # (B, A * padded_Lr)
+        ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (B, A * padded_Ll)
+
+        print(recs.shape, ligs.shape)
 
     return recs, ligs, labels
 
@@ -143,18 +164,19 @@ def collate_fn(batch, cache_dir, residue, one_hot, kernel_size):
 
 def setup_model(train_loader, device, run, residue):
     # 2. Setup device, model, optimizer, and loss function
-    rec_emb_sample, _,  _ = next(iter(train_loader))
     if residue:
+        rec_emb_sample, _,  _ = next(iter(train_loader))
         embed_dim = rec_emb_sample.size(2)  # Assuming the embedding dimension is the second dimension
     else:
-        embed_dim = rec_emb_sample.size(1)
+        rec_emb_sample, lig_emb_sample, _ = next(iter(train_loader))
+        embed_dim = rec_emb_sample.size(1) + lig_emb_sample.size(1)  # Assuming the embedding dimension is the second dimension
 
     # Initialize the model
     if residue:
         model = baseline2d(embed_dim).to(device)
     else:
-        # model = SimpleInteractionNet(embed_dim).to(device)
-        model = RichouxInteractionNet(embed_dim).to(device)
+        model = SimpleInteractionNet(embed_dim).to(device)
+        # model = RichouxInteractionNet(embed_dim).to(device)
 
     
     # Initialize optimizer and loss function
