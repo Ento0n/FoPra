@@ -2,6 +2,7 @@ import pandas as pd
 import torch
 import hashlib
 import os
+import sys
 import math
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
@@ -10,8 +11,8 @@ import torch.nn.functional as F
 import wandb
 from models.linearFC import SimpleInteractionNet
 from models.baseline_fc_conv import baseline2d
-from models.richoux_fc import RichouxInteractionNet
 from functools import partial
+from sklearn.metrics import confusion_matrix
 
 
 # wrap a pandas DataFrame of sequence pairs into a torch Dataset
@@ -156,8 +157,6 @@ def collate_fn(batch, cache_dir, residue, one_hot, kernel_size, pad_rec_len, pad
         recs = torch.stack([torch.flatten(rec) for rec in recs]) # (B, A * padded_Lr)
         ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (B, A * padded_Ll)
 
-        print(recs.shape, ligs.shape)
-
     return recs, ligs, labels
 
 #######################################__Model__##################################################
@@ -182,10 +181,8 @@ def setup_model(train_loader, device, run, residue):
     # Initialize optimizer and loss function
     optimizer = optim.Adam(model.parameters(), lr=run.config.learning_rate)
 
-    if residue:
-        criterion = nn.BCELoss()
-    else:
-        criterion = nn.CrossEntropyLoss()
+    # Binary Cross Entropy Loss for binary classification
+    criterion = nn.BCELoss()
 
     # Give model to WandB
     wandb.watch(model, log="all", log_freq=100)
@@ -199,14 +196,14 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, re
 
         model.train()
         total_loss = 0.0
-        for rec_emb, lig_emb, labels in train_loader:
+        for rec_emb, lig_emb, labels in train_loader:                
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
             logits = model(rec_emb, lig_emb)
 
-            if residue:
-                labels = labels.float()  # Convert labels to float for BCELoss
+            labels = labels.float()  # Convert labels to float for BCELoss
 
             loss = criterion(logits, labels)
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -225,18 +222,14 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, re
                 rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
                 logits = model(rec_emb, lig_emb)
 
-                if residue:
-                    labels = labels.float()  # Convert labels to float for BCELoss
+                labels = labels.float()  # Convert labels to float for BCELoss
 
                 # Loss
                 loss = criterion(logits, labels)
                 val_loss += loss.item()
 
                 # Accuracy
-                if residue: 
-                    preds = (logits > 0.5).float() # (B)
-                else:
-                    preds = logits.argmax(dim=1) # (B, 2)
+                preds = (logits > 0.5).float() # (B)
 
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
@@ -250,25 +243,28 @@ def test(device, model, test_loader, residue):
     # 5. Test the model
     model.eval()
     correct, total = 0, 0
+    all_preds = []
+    all_labels = []
     with torch.no_grad():
         for rec_emb, lig_emb, labels in test_loader:
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
 
-            if residue:
-                labels = labels.float()  # Convert labels to float for BCELoss
+            labels = labels.float()  # Convert labels to float for BCELoss
 
             logits = model(rec_emb, lig_emb)
 
             # Accuracy
-            if residue:
-                preds = (logits > 0.5).float()
-            else:
-                preds = logits.argmax(dim=1)
+            preds = (logits > 0.5).float()
 
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
+            # Collect all preds and labels for confusion matrix
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
     print(f"Test accuracy: {correct/total*100:.2f}%")
+    print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds)}")
 
 
 def main():
@@ -276,7 +272,7 @@ def main():
     global AA_ALPHABET, aa_to_idx
 
     # Define the amino acid alphabet (can adapt if you want gaps, X, etc.)
-    AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXB"
+    AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXBU"
     aa_to_idx = {aa: i for i, aa in enumerate(AA_ALPHABET)}
 
     # Arguments
@@ -287,9 +283,9 @@ def main():
     else:
         embedding_type = "mean"
 
-    train_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/train.csv"
-    val_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/val.csv"
-    test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test.csv"
+    train_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/train.csv"
+    val_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/val.csv"
+    test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test.csv"
     cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
 
     kernel_size = 2  # Default kernel size, can be adjusted

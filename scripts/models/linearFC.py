@@ -13,7 +13,8 @@ class SimpleInteractionNet(nn.Module):
             nn.Linear(1536, 768),
             nn.ReLU(inplace=True),
             nn.Dropout(0.3),
-            nn.Linear(768, 2)  # Binary classification (interaction vs no interaction)
+            nn.Linear(768, 1),  # Output single value for binary classification
+            nn.Sigmoid()
         )
 
     def forward(self, rec_emb, lig_emb):
@@ -21,4 +22,4 @@ class SimpleInteractionNet(nn.Module):
         x = torch.cat([rec_emb, lig_emb], dim=1)  # Concatenate embeddings along the embedding dimension
         # e.g. x shape: torch.Size([B, 3072])
 
-        return self.fc(x) # shape: (B, 2)
+        return self.fc(x).squeeze(-1) # shape: (B,)
