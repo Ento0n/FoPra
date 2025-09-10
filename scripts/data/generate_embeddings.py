@@ -15,13 +15,8 @@ os.environ['HF_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
 os.environ['TRANSFORMERS_CACHE'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
 
 
-# 1. Spin up the ESM client
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-login(token="")
-client = ESM3.from_pretrained(ESM3_OPEN_SMALL, device=device)
-
 # 2. Function to save per-sequence embeddings
-def save_seq_embeddings(seqs, out_dir):
+def save_seq_embeddings(seqs, residue, out_dir):
     os.makedirs(out_dir, exist_ok=True)
     
     max_seq_len = 0
@@ -43,13 +38,22 @@ def save_seq_embeddings(seqs, out_dir):
         # encode each sequence individually
         with torch.no_grad():
             protein_tensor = client.encode(prot)
-            result = client.forward_and_sample(
-                protein_tensor,
-                SamplingConfig(
-                    return_per_residue_embeddings=True,
-                    return_mean_embedding=False,
-                ),
-            ).per_residue_embedding
+            if residue:
+                result = client.forward_and_sample(
+                    protein_tensor,
+                    SamplingConfig(
+                        return_per_residue_embeddings=True,
+                        return_mean_embedding=False,
+                    ),
+                ).per_residue_embedding
+            else:
+                result = client.forward_and_sample(
+                    protein_tensor,
+                    SamplingConfig(
+                        return_per_residue_embeddings=False,
+                        return_mean_embedding=True,
+                    ),
+                ).mean_embedding
 
         # save each
         torch.save({"sequence": prot.sequence, "embedding": result.cpu()},
@@ -60,24 +64,41 @@ def save_seq_embeddings(seqs, out_dir):
         gc.collect() # delete cache
 
 
-# 3. Generate embeddings for receptor and ligand sequences
-df = pd.concat([
-    pd.read_csv("/nfs/scratch/pinder/negative_dataset/datasets/train_dataset.csv"),
-    pd.read_csv("/nfs/scratch/pinder/negative_dataset/datasets/val_dataset.csv"),
-    pd.read_csv("/nfs/scratch/pinder/negative_dataset/datasets/test_dataset.csv")
-], ignore_index=True)
+if __name__ == "__main__":
+    # 1. Spin up the ESM client
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    login(token="")
+    client = ESM3.from_pretrained(ESM3_OPEN_SMALL, device=device)
 
-# Only consider sequences where label==1
-unique_rec = df[df['label'] == 1]['receptor_seq'].unique()
-unique_lig = df[df['label'] == 1]['ligand_seq'].unique()
+    # whether to save residue‐level embeddings or mean embeddings
+    residue = False
 
-print("Generating embeddings for receptor sequences...")
-save_seq_embeddings(
-    unique_rec,
-    "/nfs/scratch/pinder/negative_dataset/embeddings/sequence/ESM3/residue"
-)
-print("Generating embeddings for ligand sequences...")
-save_seq_embeddings(
-    unique_lig,
-    "/nfs/scratch/pinder/negative_dataset/embeddings/sequence/ESM3/residue"
-)
+    # 3. Generate embeddings for receptor and ligand sequences
+    print("Loading dataset splits from /nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/SPLIT.csv")
+    df = pd.concat([
+        pd.read_csv("/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/train.csv"),
+        pd.read_csv("/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/val.csv"),
+        pd.read_csv("/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test.csv")
+    ], ignore_index=True)
+
+    # Only consider sequences where label==1
+    unique_rec = df[df['label'] == 1]['receptor_seq'].unique()
+    unique_lig = df[df['label'] == 1]['ligand_seq'].unique()
+
+    if residue:
+        out_path = "/nfs/scratch/pinder/negative_dataset/embeddings/sequence/ESM3/residue"
+    else:
+        out_path = "/nfs/scratch/pinder/negative_dataset/embeddings/sequence/ESM3/mean"
+
+    print("Generating embeddings for receptor sequences...")
+    save_seq_embeddings(
+        unique_rec,
+        residue,
+        out_path
+    )
+    print("Generating embeddings for ligand sequences...")
+    save_seq_embeddings(
+        unique_lig,
+        residue,
+        out_path
+    )

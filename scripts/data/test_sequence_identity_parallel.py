@@ -83,7 +83,7 @@ def main():
     parser = argparse.ArgumentParser(description="Test sequence identity between dataset splits")
     parser.add_argument('--deleak_cdhit', action='store_true', help='Use by cdhit deleaked dataset')
     parser.add_argument('--deleak_uniprot', action='store_true', help='Use by uniprot deleaked dataset')
-    parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/datasets', help='Base path for datasets')
+    parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/', help='Base path for datasets')
 
     # Add mutually exclusive arguments for fasta creation and deleaking
     group = parser.add_mutually_exclusive_group(required=False)
@@ -130,6 +130,8 @@ def main():
     max_val_test, avg_val_test, max_val_test_pair = max_identity_pairwise(val_seqs, test_seqs)
 
     # print collected results
+    print(f"Using dataset splits from:\nTrain: {train_csv}\nVal: {val_csv}\nTest: {test_csv}\n")
+    print("Results:")
     print(f"Max sequence identity between train/val: {max_train_val:.4f}")
     print(f"Max sequence identity pair between train/val: {max_train_val_pair}")
     print(f"Avg sequence identity between train/val: {avg_train_val:.4f}\n")

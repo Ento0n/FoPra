@@ -264,7 +264,7 @@ def test(device, model, test_loader, residue):
             all_labels.extend(labels.cpu().numpy())
 
     print(f"Test accuracy: {correct/total*100:.2f}%")
-    print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds)}")
+    print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}")
 
 
 def main():
@@ -277,7 +277,7 @@ def main():
 
     # Arguments
     residue = False
-    one_hot = True
+    one_hot = False
     if residue:
         embedding_type = "residue"
     else:
