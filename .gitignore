@@ -9,3 +9,6 @@
 
 # pycache
 /models/pycache
+
+# slurm run files
+*.sh
