@@ -32,7 +32,6 @@ def save_seq_embeddings(seqs, residue, out_dir):
         # skip already‐saved ones
         key = hashlib.md5(prot.sequence.encode()).hexdigest()
         path = os.path.join(out_dir, f"{key}.pt")
-        # skip if already exists
         if os.path.exists(path):
             continue
 
@@ -68,7 +67,7 @@ def save_seq_embeddings(seqs, residue, out_dir):
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Generate Embeddings for Protein information")
-    parser.add_argument('--token', type=int, default=None, required=True, help='Token for huggingface login')
+    parser.add_argument('--token', type=str, default=None, required=True, help='Token for huggingface login')
     parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
 
     args = parser.parse_args()
@@ -82,7 +81,7 @@ if __name__ == "__main__":
     residue = False
 
     # 3. Generate embeddings for receptor and ligand sequences
-    print(f"Loading dataset from {args.path}...")
+    print(f"Loading dataset from {args.path}...\n")
     df = pd.concat([
         pd.read_csv(os.path.join(args.path, "train.csv")),
         pd.read_csv(os.path.join(args.path, "val.csv")),
@@ -94,17 +93,19 @@ if __name__ == "__main__":
     unique_lig = df[df['label'] == 1]['ligand_seq'].unique()
 
     if residue:
-        out_path = "/nfs/scratch/pinder/negative_dataset/embeddings/sequence/ESM3/residue"
+        out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/residue"
     else:
-        out_path = "/nfs/scratch/pinder/negative_dataset/embeddings/sequence/ESM3/mean"
+        out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/mean"
+    
+    print(f"Saving embeddings to {out_path}...\n")
 
-    print("Generating embeddings for receptor sequences...")
+    print("Generating embeddings for receptor sequences...\n")
     save_seq_embeddings(
         unique_rec,
         residue,
         out_path
     )
-    print("Generating embeddings for ligand sequences...")
+    print("Generating embeddings for ligand sequences...\n")
     save_seq_embeddings(
         unique_lig,
         residue,
