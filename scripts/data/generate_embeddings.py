@@ -89,8 +89,8 @@ if __name__ == "__main__":
     ], ignore_index=True)
 
     # Only consider sequences where label==1
-    unique_rec = df[df['label'] == 1]['receptor_seq'].unique()
-    unique_lig = df[df['label'] == 1]['ligand_seq'].unique()
+    unique_rec = df['receptor_seq'].unique()
+    unique_lig = df['ligand_seq'].unique()
 
     if residue:
         out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/residue"
