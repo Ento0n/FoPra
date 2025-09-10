@@ -313,9 +313,9 @@ def deleak_by_uniprot(df: pd.DataFrame) -> pd.DataFrame:
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Create positive and negative datasets by split")
-    parser.add_argument('--train_lim', type=int, default=None, help='Upper limit for training set size')
-    parser.add_argument('--deleak_uniprot', action='store_true', help='Deleak the dataset by removing duplicates across splits')
-    parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/datasets', help='Base path for datasets')
+    parser.add_argument('--train_lim', type=int, default=None, required=False, help='Upper limit for training set size')
+    parser.add_argument('--deleak_uniprot', action='store_true', required=False, help='Deleak the dataset by removing duplicates across splits')
+    parser.add_argument('--path', type=str, default=None, required=True, help='Base path for datasets')
 
     # Add mutually exclusive arguments for fasta creation and deleaking
     group = parser.add_mutually_exclusive_group(required=False)
@@ -386,7 +386,7 @@ if __name__ == "__main__":
 
     # limit train to 10k samples, if specified
     if args.train_lim:
-        print(f"Limiting training set to {args.train_lim} samples.\n")
+        print(f"Limiting positive training set to {args.train_lim} samples.\n")
         train = train[:args.train_lim]
 
     # Sample negatives for each split
@@ -402,31 +402,59 @@ if __name__ == "__main__":
     # Save splits
     print("######### Save dataset splits #########\n")
     if not args.deleak_uniprot and not args.deleak_cdhit:
-        print(f"Save dataset splits to {args.path}")
-        train_dataset.to_csv(os.path.join(args.path, 'train.csv'), index=False)
-        val_dataset.to_csv(os.path.join(args.path, 'val.csv'), index=False)
-        test_dataset.to_csv(os.path.join(args.path, 'test.csv'), index=False)
+        if not args.train_lim:
+            print(f"Save dataset splits to {args.path}")
+            train_dataset.to_csv(os.path.join(args.path, 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, 'test.csv'), index=False)
+        else:
+            print(f"Save limited dataset splits to {os.path.join(args.path, f'train_{args.train_lim}')}")
+            os.makedirs(os.path.join(args.path, f'train_pos_lim_{args.train_lim}'), exist_ok=True)
+            train_dataset.to_csv(os.path.join(args.path, f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
 
     elif args.deleak_uniprot and not args.deleak_cdhit:
-        print(f"Save dataset splits to {os.path.join(args.path, 'deleak_uniprot')}")
-        os.makedirs(os.path.join(args.path, 'deleak_uniprot'), exist_ok=True)
-        train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'train.csv'), index=False)
-        val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'val.csv'), index=False)
-        test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'test.csv'), index=False)
+        if not args.train_lim:
+            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_uniprot')}")
+            os.makedirs(os.path.join(args.path, 'deleak_uniprot'), exist_ok=True)
+            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'test.csv'), index=False)
+        else:
+            print(f"Save limited dataset splits to {os.path.join(args.path, f'deleak_uniprot', f'train_{args.train_lim}')}")
+            os.makedirs(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}'), exist_ok=True)
+            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
 
     elif args.deleak_uniprot and args.deleak_cdhit:
-        print(f"Save dataset splits to {os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit')}")
-        os.makedirs(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit'), exist_ok=True)
-        train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'train.csv'), index=False)
-        val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'val.csv'), index=False)
-        test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'test.csv'), index=False)
+        if not args.train_lim:
+            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit')}")
+            os.makedirs(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit'), exist_ok=True)
+            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'test.csv'), index=False)
+        else:
+            print(f"Save limited dataset splits to {os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_{args.train_lim}')}")
+            os.makedirs(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}'), exist_ok=True)
+            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
 
     elif not args.deleak_uniprot and args.deleak_cdhit:
-        print(f"Save dataset splits to {os.path.join(args.path, 'deleak_cdhit')}")
-        os.makedirs(os.path.join(args.path, 'deleak_cdhit'), exist_ok=True)
-        train_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'train.csv'), index=False)
-        val_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'val.csv'), index=False)
-        test_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'test.csv'), index=False)
+        if not args.train_lim:
+            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_cdhit')}")
+            os.makedirs(os.path.join(args.path, 'deleak_cdhit'), exist_ok=True)
+            train_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'test.csv'), index=False)
+        else:
+            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_cdhit')}")
+            os.makedirs(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}'), exist_ok=True)
+            train_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
+            val_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
+            test_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
 
 
 
