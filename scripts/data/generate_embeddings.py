@@ -8,6 +8,7 @@ from esm.models.esm3 import ESM3
 from esm.utils.constants.models import ESM3_OPEN_SMALL
 from huggingface_hub import login
 import gc
+import argparse
 
 os.environ['PINDER_BASE_DIR'] = '/nfs/scratch/pinder'
 os.environ['MPLCONFIGDIR'] = '/nfs/scratch/pinder/negative_dataset'
@@ -65,9 +66,15 @@ def save_seq_embeddings(seqs, residue, out_dir):
 
 
 if __name__ == "__main__":
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Generate Embeddings for Protein information")
+    parser.add_argument('--token', type=int, default=None, help='Token for huggingface login')
+
+    args = parser.parse_args()
+
     # 1. Spin up the ESM client
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    login(token="")
+    login(token=args.token)
     client = ESM3.from_pretrained(ESM3_OPEN_SMALL, device=device)
 
     # whether to save residue‐level embeddings or mean embeddings
