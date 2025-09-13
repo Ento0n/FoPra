@@ -33,7 +33,7 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size
     #################__Torch device__################
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print("Using device:", device)
+    print("Using device:", device, "\n")
 
     #################__WandB__######################
 
@@ -80,7 +80,7 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size
         lig_max_test  = test_df["ligand_seq"].str.len().max()
         pad_rec_len = int(max(rec_max_train, rec_max_val, rec_max_test))
         pad_lig_len = int(max(lig_max_train, lig_max_val, lig_max_test))
-        print(f"Using fixed one-hot pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}")
+        print(f"Using fixed one-hot pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}\n")
 
     collate = partial(collate_fn, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
 
@@ -190,7 +190,7 @@ def setup_model(train_loader, device, run, residue):
     return model, optimizer, criterion
 
 
-def train(device, run, model, optimizer, criterion, train_loader, val_loader, residue):
+def train(device, run, model, optimizer, criterion, train_loader, val_loader):
     # 3. Training loop
     for i in range(run.config.epochs):
 
@@ -239,7 +239,7 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, re
         # log validation metrics to wandb
         run.log({"val_accuracy": correct/total, "val_loss": avg_val_loss}, step=i)
 
-def test(device, model, test_loader, residue):
+def test(device, model, test_loader):
     # 5. Test the model
     model.eval()
     correct, total = 0, 0
@@ -263,8 +263,8 @@ def test(device, model, test_loader, residue):
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
-    print(f"Test accuracy: {correct/total*100:.2f}%")
-    print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}")
+    print(f"Test accuracy: {correct/total*100:.2f}%\n")
+    print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}\n")
 
 
 def main():
@@ -277,15 +277,20 @@ def main():
 
     # Arguments
     residue = False
-    one_hot = False
+    one_hot = True
     if residue:
         embedding_type = "residue"
     else:
         embedding_type = "mean"
 
-    train_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/train.csv"
-    val_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/val.csv"
-    test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test.csv"
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit"
+
+    print(f"Using dataset path: {path}")
+
+    train_csv = os.path.join(path, "train.csv")
+    val_csv = os.path.join(path, "val.csv")
+    test_csv = os.path.join(path, "test.csv")
+
     cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
 
     kernel_size = 2  # Default kernel size, can be adjusted
@@ -295,8 +300,8 @@ def main():
     # PIPELINE
     device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wandb_mode)
     model, optimizer, criterion = setup_model(train_loader, device, run, residue)
-    train(device, run, model, optimizer, criterion, train_loader, val_loader, residue)
-    test(device, model, test_loader, residue)
+    train(device, run, model, optimizer, criterion, train_loader, val_loader)
+    test(device, model, test_loader)
 
 if __name__ == "__main__":
     main()
