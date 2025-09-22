@@ -4,6 +4,7 @@ import hashlib
 import os
 import sys
 import math
+import argparse
 from torch.utils.data import Dataset, DataLoader
 import torch.nn as nn
 import torch.optim as optim
@@ -266,8 +267,66 @@ def test(device, model, test_loader):
     print(f"Test accuracy: {correct/total*100:.2f}%\n")
     print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}\n")
 
+def handle_random_forest(train_csv, test_csv):
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.metrics import classification_report, accuracy_score
+
+    train_df = pd.read_csv(train_csv)
+    test_df = pd.read_csv(test_csv)
+
+    print("Training Random Forest Classifier on one-hot encoded sequences...\n")
+
+    # Compute fixed global pad lengths for one-hot case to keep model input size constant
+    rec_max_train = train_df["receptor_seq"].str.len().max()
+    rec_max_test  = test_df["receptor_seq"].str.len().max()
+    lig_max_train = train_df["ligand_seq"].str.len().max()
+    lig_max_test  = test_df["ligand_seq"].str.len().max()
+    pad_rec_len = int(max(rec_max_train, rec_max_test))
+    pad_lig_len = int(max(lig_max_train, lig_max_test))
+    print(f"Using fixed one-hot pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}\n")
+
+    def extract_features(df):
+        recs = [aa_one_hot(aa) for aa in df["receptor_seq"]] # List of (Lr, A)
+        ligs = [aa_one_hot(aa) for aa in df["ligand_seq"]] # List of (Ll, A)
+
+        # Pad sequences to the global longest sequence
+        recs = [F.pad(rec, (0, 0, 0, pad_rec_len - rec.size(0))) for rec in recs] # (Lr, A) -> (padded_Lr, A)
+        ligs = [F.pad(lig, (0, 0, 0, pad_lig_len - lig.size(0))) for lig in ligs] # (Ll, A) -> (padded_Ll, A)
+
+        # flatten the one hot encoding and stack batch in 1 tensor
+        recs = torch.stack([torch.flatten(rec) for rec in recs]) # (df_size, A * padded_Lr)
+        ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (df_size, A * padded_Ll)
+
+        features = torch.cat([recs, ligs], dim=1) # (df_size, A * (padded_Lr + padded_Ll))
+
+        return features
+
+    X_train = extract_features(train_df).numpy()
+    y_train = train_df["label"].values
+
+    X_test = extract_features(test_df).numpy()
+    y_test = test_df["label"].values
+
+    clf = RandomForestClassifier(n_estimators=100, random_state=42, bootstrap=True, max_samples=0.2)
+    clf.fit(X_train, y_train)
+
+    y_pred = clf.predict(X_test)
+    print(classification_report(y_test, y_pred, digits=4))
+
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f'Accuracy: {accuracy}')
+
+
 
 def main():
+    # Parse command-line arguments
+    parser = argparse.ArgumentParser(description="Test ML Architecture for Protein Interaction Prediction")
+    parser.add_argument('--token', type=str, default=None, required=True, help='Token for WandB login')
+    parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
+    parser.add_argument('--random_forest', action='store_true', help='If set, run Random Forest classifier instead of NN')
+
+    args = parser.parse_args()
+
     # global
     global AA_ALPHABET, aa_to_idx
 
@@ -283,19 +342,20 @@ def main():
     else:
         embedding_type = "mean"
 
-    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit"
+    print(f"Using dataset path: {args.path}")
 
-    print(f"Using dataset path: {path}")
-
-    train_csv = os.path.join(path, "train.csv")
-    val_csv = os.path.join(path, "val.csv")
-    test_csv = os.path.join(path, "test.csv")
+    train_csv = os.path.join(args.path, "train.csv")
+    val_csv = os.path.join(args.path, "val.csv")
+    test_csv = os.path.join(args.path, "test.csv")
 
     cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
 
     kernel_size = 2  # Default kernel size, can be adjusted
     wandb_mode = "disabled"  # Change to "online" to enable WandB logging, "disabled" to disable it
 
+    if args.random_forest:
+        handle_random_forest(train_csv, test_csv)
+        sys.exit(0)
 
     # PIPELINE
     device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wandb_mode)
