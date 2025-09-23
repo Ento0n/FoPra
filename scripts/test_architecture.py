@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import torch
 import hashlib
 import os
@@ -14,6 +15,7 @@ from models.linearFC import SimpleInteractionNet
 from models.baseline_fc_conv import baseline2d
 from functools import partial
 from sklearn.metrics import confusion_matrix
+import matplotlib.pyplot as plt
 
 
 # wrap a pandas DataFrame of sequence pairs into a torch Dataset
@@ -417,6 +419,7 @@ def exec_lrp_simple_interaction_net(model, device, test_loader):
             normalize=False
         )
 
+        print(f"R_in: {R_in}")
         print("R_in shape:", R_in.shape)     # (B, rec_dim + lig_dim)
         print("R_rec sum vs R_lig sum (first sample):", R_rec[0].sum().item(), R_lig[0].sum().item())
         print("Output prob/logit (first sample):", info["prob"][0].item(), info["logit"][0].item())
@@ -424,6 +427,28 @@ def exec_lrp_simple_interaction_net(model, device, test_loader):
         print("Sum of input relevance vs chosen start (first sample):",
             R_in[0].sum().item(),
             info["prob"][0].item())  # if start_from="prob" and target="pos"
+        
+        # Plot the 4 rows as lines
+
+        x = np.arange(R_in.size(1))
+        plt.figure(figsize=(12, 4))
+
+        colors = ["C0", "C1", "C2", "C3"]
+
+        for i in range(min(4, R_in.size(0))):
+            y = R_in[i].detach().cpu().numpy()
+            plt.plot(x, y, color=colors[i % len(colors)], label=f"sample {i}", linewidth=0.8)
+
+        plt.xlabel("Feature index")
+        plt.ylabel("Relevance")
+        plt.title("LRP input relevance per feature")
+        plt.legend(loc="upper right")
+        plt.tight_layout()
+
+        out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/plots/lrp_input_relevance_line_plot.png"
+        plt.savefig(out_path, dpi=200)
+        plt.close()
+        print(f"Saved line plot to: {out_path}")
         
         break # demo on first batch only
 
@@ -449,7 +474,8 @@ def main():
     # Arguments
     residue = False
     one_hot = True
-    lrp = True
+    lrp = False
+    judith_test = True
     if residue:
         embedding_type = "residue"
     else:
@@ -460,6 +486,10 @@ def main():
     train_csv = os.path.join(args.path, "train.csv")
     val_csv = os.path.join(args.path, "val.csv")
     test_csv = os.path.join(args.path, "test.csv")
+
+    if judith_test:
+        test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test_pinder.csv"
+        print(f"Using Judith test set at: {test_csv}")
 
     cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
 
