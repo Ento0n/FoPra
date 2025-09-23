@@ -316,6 +316,118 @@ def handle_random_forest(train_csv, test_csv):
     accuracy = accuracy_score(y_test, y_pred)
     print(f'Accuracy: {accuracy}')
 
+@torch.no_grad()
+def lrp_simple_interaction_net(model, rec_emb, lig_emb, start_from, target, rule_first, rule_hidden, eps: float = 1e-6, normalize: bool = False):
+
+    # cancels out dropout
+    model.eval()
+
+    # Build iput and remember split point
+    x = torch.cat([rec_emb, lig_emb], dim=1)  # (B, D)
+    d_rec = rec_emb.size(1)
+
+    # Collect Linear layers in order
+    linears = [m for m in model.fc if isinstance(m, nn.Linear)]
+    if len(linears) < 1:
+        raise RuntimeError("No Linear layers found in model.fc (required for LRP).")
+
+    # Forward pass while caching inputs to each Linear (activations before that Linear)
+    h = x
+    activations = []
+    for layer in model.fc:
+        if isinstance(layer, nn.Linear):
+            activations.append(h)
+        h = layer(h)
+    
+    # Final output
+    # Keep probability as (B, 1) to avoid broadcasting issues in LRP
+    prob = h  # after sigmoid: (B, 1)
+
+    # before sigmoid: a_last @ W_last^T + b_last
+    a_last = activations[-1]  # (B, H)
+    W_last = linears[-1].weight  # (1, H)
+    b_last = linears[-1].bias  # (1)
+    logit = a_last @ W_last.t() + b_last  # (B, 1)
+
+    # Choose starting relevance R^L
+    if start_from == "logit":
+        R = logit.clone()
+    elif start_from == "prob":
+        if target == "pos":
+            R = prob.clone() # (B, 1)
+        elif target == "neg":
+            R = 1.0 - prob # (B, 1)
+        else:
+            raise ValueError("target must be 'pos' or 'neg'")
+    else:
+        raise ValueError("start_from must be 'prob' or 'logit'")
+    
+    # Local propagation rules for a Linear layer
+    def back_linear_epsilon(a: torch.Tensor, lin: nn.Linear, R: torch.Tensor, eps: float):
+        # Shapes: a (B,in), weight (out,in), bias (out), R (B,out)
+        z = a @ lin.weight.t() + lin.bias                      # (B,out)
+        stabilizer = eps * torch.where(z >= 0, 1.0, -1.0)      # signed epsilon
+        s = R / (z + stabilizer)                               # (B,out)
+        # R_in = a * (s @ W)   (efficient implementation of sum_j (a_i * w_ij * R_j / z_j))
+        return a * (s @ lin.weight)                            # (B,in)
+
+    def back_linear_zplus(a: torch.Tensor, lin: nn.Linear, R: torch.Tensor, eps: float):
+        Wp = torch.clamp(lin.weight, min=0.0)                  # (out,in)
+        ap = torch.clamp(a, min=0.0)                           # (B,in)  (assumes ReLU in previous layers)
+        z = ap @ Wp.t() + eps                                  # (B,out) stabilizer keeps denom > 0
+        s = R / z                                              # (B,out)
+        return ap * (s @ Wp)                                   # (B,in)
+
+    # Decide per-layer rules: first layer often uses epsilon; hidden layers z+
+    rules = [rule_first] + [rule_hidden] * (len(linears) - 1)
+
+    # Backward LRP pass through Linear layers in reverse order
+    for a, lin, rule in zip(reversed(activations), reversed(linears), reversed(rules)):
+        if rule == "epsilon":
+            R = back_linear_epsilon(a, lin, R, eps)
+        elif rule == "zplus":
+            R = back_linear_zplus(a, lin, R, eps)
+        else:
+            raise ValueError("rule must be 'epsilon' or 'zplus'")
+
+    R_in = R  # (B, input_dim)
+
+    # Optional per-sample normalization (useful for visualization comparability)
+    if normalize:
+        denom = R_in.abs().sum(dim=1, keepdim=True).clamp_min(1e-12)
+        R_in = R_in / denom
+
+    # Split into receptor vs ligand relevance
+    R_rec = R_in[:, :d_rec]
+    R_lig = R_in[:, d_rec:]
+
+    return R_in, R_rec, R_lig, {"prob": prob.squeeze(-1), "logit": logit.squeeze(-1)}
+
+def exec_lrp_simple_interaction_net(model, device, test_loader):
+    for rec_emb, lig_emb, labels in test_loader:
+        rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
+
+        R_in, R_rec, R_lig, info = lrp_simple_interaction_net(
+            model, rec_emb, lig_emb,
+            start_from="prob",       # or "logit"
+            target="pos",            # "pos" (y) or "neg" (1-y) if using prob
+            rule_first="epsilon",    # ε-rule on first Linear (good when inputs can be negative)
+            rule_hidden="zplus",     # z+ on hidden layers (keeps relevance nonnegative)
+            eps=1e-6,
+            normalize=False
+        )
+
+        print("R_in shape:", R_in.shape)     # (B, rec_dim + lig_dim)
+        print("R_rec sum vs R_lig sum (first sample):", R_rec[0].sum().item(), R_lig[0].sum().item())
+        print("Output prob/logit (first sample):", info["prob"][0].item(), info["logit"][0].item())
+        # Optional conservation check (approximate if using epsilon stabilizer):
+        print("Sum of input relevance vs chosen start (first sample):",
+            R_in[0].sum().item(),
+            info["prob"][0].item())  # if start_from="prob" and target="pos"
+        
+        break # demo on first batch only
+
+        
 
 
 def main():
@@ -337,6 +449,7 @@ def main():
     # Arguments
     residue = False
     one_hot = True
+    lrp = True
     if residue:
         embedding_type = "residue"
     else:
@@ -362,6 +475,10 @@ def main():
     model, optimizer, criterion = setup_model(train_loader, device, run, residue)
     train(device, run, model, optimizer, criterion, train_loader, val_loader)
     test(device, model, test_loader)
+
+    if lrp:
+        print("Executing LRP on first batch of test set...\n")
+        exec_lrp_simple_interaction_net(model, device, test_loader)
 
 if __name__ == "__main__":
     main()
