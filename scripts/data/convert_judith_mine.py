@@ -22,16 +22,16 @@ def create_split_df(pos_file_path, neg_file_path, seqs, split_name):
             continue
         rec_seq = seqs[rec]
         lig_seq = seqs[lig]
-        data.append((rec_seq, lig_seq, 1, split_name))
+        data.append((rec, lig, rec_seq, lig_seq, 1, split_name))
     
     for rec, lig in neg_interactions:
         if rec not in seqs or lig not in seqs:
             continue
         rec_seq = seqs[rec]
         lig_seq = seqs[lig]
-        data.append((rec_seq, lig_seq, 0, split_name))
+        data.append((rec, lig, rec_seq, lig_seq, 0, split_name))
     
-    df = pd.DataFrame(data, columns=["receptor_seq", "ligand_seq", "label", "split"])
+    df = pd.DataFrame(data, columns=["receptor_uniprot", "ligand_uniprot", "receptor_seq", "ligand_seq", "label", "split"])
     return df
     
 

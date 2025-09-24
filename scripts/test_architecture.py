@@ -476,6 +476,7 @@ def main():
     one_hot = True
     lrp = False
     judith_test = True
+    
     if residue:
         embedding_type = "residue"
     else:
