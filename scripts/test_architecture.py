@@ -406,51 +406,125 @@ def lrp_simple_interaction_net(model, rec_emb, lig_emb, start_from, target, rule
     return R_in, R_rec, R_lig, {"prob": prob.squeeze(-1), "logit": logit.squeeze(-1)}
 
 def exec_lrp_simple_interaction_net(model, device, test_loader):
-    for rec_emb, lig_emb, labels in test_loader:
-        rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
 
-        R_in, R_rec, R_lig, info = lrp_simple_interaction_net(
-            model, rec_emb, lig_emb,
-            start_from="prob",       # or "logit"
-            target="pos",            # "pos" (y) or "neg" (1-y) if using prob
-            rule_first="epsilon",    # ε-rule on first Linear (good when inputs can be negative)
-            rule_hidden="zplus",     # z+ on hidden layers (keeps relevance nonnegative)
-            eps=1e-6,
-            normalize=False
-        )
+    out_dir = "/nfs/scratch/pinder/negative_dataset/my_repository/plots"
+    os.makedirs(out_dir, exist_ok=True)
 
-        print(f"R_in: {R_in}")
-        print("R_in shape:", R_in.shape)     # (B, rec_dim + lig_dim)
-        print("R_rec sum vs R_lig sum (first sample):", R_rec[0].sum().item(), R_lig[0].sum().item())
-        print("Output prob/logit (first sample):", info["prob"][0].item(), info["logit"][0].item())
-        # Optional conservation check (approximate if using epsilon stabilizer):
-        print("Sum of input relevance vs chosen start (first sample):",
-            R_in[0].sum().item(),
-            info["prob"][0].item())  # if start_from="prob" and target="pos"
-        
-        # Plot the 4 rows as lines
+    model.eval()
 
-        x = np.arange(R_in.size(1))
-        plt.figure(figsize=(12, 4))
+    total_sum = None
+    rec_sum = None
+    lig_sum = None
+    total_count = 0
 
-        colors = ["C0", "C1", "C2", "C3"]
+    # Optional class-conditional aggregation
+    pos_sum = None
+    neg_sum = None
+    pos_count = 0
+    neg_count = 0
 
-        for i in range(min(4, R_in.size(0))):
-            y = R_in[i].detach().cpu().numpy()
-            plt.plot(x, y, color=colors[i % len(colors)], label=f"sample {i}", linewidth=0.8)
+    d_rec = None  # will be set from first batch
 
-        plt.xlabel("Feature index")
-        plt.ylabel("Relevance")
-        plt.title("LRP input relevance per feature")
-        plt.legend(loc="upper right")
-        plt.tight_layout()
+    with torch.no_grad():
+        for rec_emb, lig_emb, labels in test_loader:
+            rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device).float()
+            if d_rec is None:
+                d_rec = rec_emb.size(1)
 
-        out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/plots/lrp_input_relevance_line_plot.png"
-        plt.savefig(out_path, dpi=200)
-        plt.close()
-        print(f"Saved line plot to: {out_path}")
-        
-        break # demo on first batch only
+            R_in, R_rec, R_lig, info = lrp_simple_interaction_net(
+                model, rec_emb, lig_emb,
+                start_from="prob",
+                target="pos",
+                rule_first="epsilon",
+                rule_hidden="zplus",
+                eps=1e-6,
+                normalize=False
+            )
+
+            # Use absolute relevance for aggregation (recommended)
+            Rin_abs = R_in.abs()
+            Rrec_abs = R_rec.abs()
+            Rlig_abs = R_lig.abs()
+
+            if total_sum is None:
+                total_sum = Rin_abs.sum(dim=0)         # (D,)
+                rec_sum   = Rrec_abs.sum(dim=0)        # (D_rec,)
+                lig_sum   = Rlig_abs.sum(dim=0)        # (D_lig,)
+                pos_sum   = torch.zeros_like(total_sum)
+                neg_sum   = torch.zeros_like(total_sum)
+            else:
+                total_sum += Rin_abs.sum(dim=0)
+                rec_sum   += Rrec_abs.sum(dim=0)
+                lig_sum   += Rlig_abs.sum(dim=0)
+
+            bsz = Rin_abs.size(0)
+            total_count += bsz
+
+            # Class-conditional means
+            pos_mask = (labels == 1.0).view(-1, 1)  # (B,1)
+            neg_mask = (labels == 0.0).view(-1, 1)
+            if pos_mask.any():
+                pos_sum += (Rin_abs * pos_mask).sum(dim=0)
+                pos_count += int(pos_mask.sum().item())
+            if neg_mask.any():
+                neg_sum += (Rin_abs * neg_mask).sum(dim=0)
+                neg_count += int(neg_mask.sum().item())
+
+    # Means
+    mean_all = (total_sum / max(total_count, 1)).detach().cpu().numpy()
+    mean_rec = (rec_sum   / max(total_count, 1)).detach().cpu().numpy()
+    mean_lig = (lig_sum   / max(total_count, 1)).detach().cpu().numpy()
+
+    mean_pos = (pos_sum / max(pos_count, 1)).detach().cpu().numpy() if pos_count > 0 else None
+    mean_neg = (neg_sum / max(neg_count, 1)).detach().cpu().numpy() if neg_count > 0 else None
+
+    # Plots
+    x_all = np.arange(mean_all.shape[0])
+    x_rec = np.arange(mean_rec.shape[0])
+    x_lig = np.arange(mean_lig.shape[0])
+
+    # Combined mean relevance
+    plt.figure(figsize=(14, 4))
+    plt.plot(x_all, mean_all, linewidth=0.8, label="Mean |R_in|")
+    if mean_pos is not None:
+        plt.plot(x_all, mean_pos, linewidth=0.8, alpha=0.8, label="Mean |R_in| (pos)")
+    if mean_neg is not None:
+        plt.plot(x_all, mean_neg, linewidth=0.8, alpha=0.8, label="Mean |R_in| (neg)")
+    if d_rec is not None:
+        plt.axvline(d_rec - 0.5, color="k", linestyle="--", alpha=0.3, label="receptor | ligand split")
+    plt.title("Mean absolute input relevance over all test batches")
+    plt.xlabel("Feature index (receptor | ligand)")
+    plt.ylabel("Mean |relevance|")
+    plt.legend()
+    out_path_all = os.path.join(out_dir, "one_hot_lrp_mean_abs_input_relevance_all.png")
+    plt.tight_layout()
+    plt.savefig(out_path_all, dpi=200)
+    plt.close()
+    print(f"Saved: {out_path_all}")
+
+    # Receptor-only
+    plt.figure(figsize=(14, 4))
+    plt.plot(x_rec, mean_rec, linewidth=0.8)
+    plt.title("Mean absolute receptor input relevance")
+    plt.xlabel("Receptor feature index")
+    plt.ylabel("Mean |relevance|")
+    out_path_rec = os.path.join(out_dir, "one_hot_lrp_mean_abs_input_relevance_receptor.png")
+    plt.tight_layout()
+    plt.savefig(out_path_rec, dpi=200)
+    plt.close()
+    print(f"Saved: {out_path_rec}")
+
+    # Ligand-only
+    plt.figure(figsize=(14, 4))
+    plt.plot(x_lig, mean_lig, linewidth=0.8)
+    plt.title("Mean absolute ligand input relevance")
+    plt.xlabel("Ligand feature index")
+    plt.ylabel("Mean |relevance|")
+    out_path_lig = os.path.join(out_dir, "one_hot_lrp_mean_abs_input_relevance_ligand.png")
+    plt.tight_layout()
+    plt.savefig(out_path_lig, dpi=200)
+    plt.close()
+    print(f"Saved: {out_path_lig}")
 
         
 
@@ -474,13 +548,18 @@ def main():
     # Arguments
     residue = False
     one_hot = True
-    lrp = False
-    judith_test = True
+    lrp = True
+    judith_test = False
     
     if residue:
         embedding_type = "residue"
     else:
         embedding_type = "mean"
+    
+    if not one_hot:
+        print(f"Using {embedding_type} embeddings\n")
+    else:
+        print("Using one-hot encoding\n")
 
     print(f"Using dataset path: {args.path}")
 
