@@ -5,7 +5,7 @@ import pandas as pd
 if __name__ == "__main__":
     path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id/"
 
-    filtered = os.path.join(path, "mine_judith.out")
+    filtered = os.path.join(path, "mine_judith_test.out")
     unfiltered = os.path.join(path, "unique_uniprot_ids.fasta")
 
     with open(filtered, "r") as f:

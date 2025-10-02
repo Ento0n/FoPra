@@ -84,6 +84,7 @@ def main():
     parser.add_argument('--deleak_cdhit', action='store_true', help='Use by cdhit deleaked dataset')
     parser.add_argument('--deleak_uniprot', action='store_true', help='Use by uniprot deleaked dataset')
     parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/', help='Base path for datasets')
+    parser.add_argument('--judith_test', action='store_true', help='Use the judith test set created by create_judith_test.py')
 
     # Add mutually exclusive arguments for fasta creation and deleaking
     group = parser.add_mutually_exclusive_group(required=False)
@@ -112,6 +113,9 @@ def main():
     else:
         print("This should never be reached. Check source code! :O")
         sys.exit()
+
+    if args.judith_test:
+        test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test_pinder.csv"
 
     # extract needed columns
     cols = ["receptor_seq", "ligand_seq"]
