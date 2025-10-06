@@ -55,6 +55,10 @@ def cd_hit_identity_edlib(seq1: str, seq2: str):
 
     return identity
 
+# max identity to train set
+def _max_id_to_train(query_seq):
+    return max(cd_hit_identity_edlib(query_seq, train_seq) for train_seq in train_seqs)
+
 # parallel max identity
 def max_identity_pairwise(set1, set2, n_processes=None):
     """Compute the maximum identity between all seqs in set1 × set2."""
@@ -85,6 +89,7 @@ def main():
     parser.add_argument('--deleak_uniprot', action='store_true', help='Use by uniprot deleaked dataset')
     parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/', help='Base path for datasets')
     parser.add_argument('--judith_test', action='store_true', help='Use the judith test set created by create_judith_test.py')
+    parser.add_argument('--save_seq_identities', action='store_true', help='Save all computed sequence identities to a CSV file')
 
     # Add mutually exclusive arguments for fasta creation and deleaking
     group = parser.add_mutually_exclusive_group(required=False)
@@ -123,6 +128,9 @@ def main():
     val_df = pd.read_csv(val_csv, usecols=cols)
     test_df = pd.read_csv(test_csv, usecols=cols)
 
+    # train seqs must be global for _max_id_to_train
+    global train_seqs
+
     # Ensure sequences are unique across datasets
     train_seqs = pd.concat([train_df['receptor_seq'], train_df['ligand_seq']]).drop_duplicates().tolist()
     val_seqs = pd.concat([val_df['receptor_seq'], val_df['ligand_seq']]).drop_duplicates().tolist()
@@ -132,6 +140,19 @@ def main():
     max_train_val, avg_train_val, max_train_val_pair = max_identity_pairwise(train_seqs, val_seqs)
     max_train_test, avg_train_test, max_train_test_pair = max_identity_pairwise(train_seqs, test_seqs)
     max_val_test, avg_val_test, max_val_test_pair = max_identity_pairwise(val_seqs, test_seqs)
+
+    # Save all computed identities if requested
+    if args.save_seq_identities:
+        n_processes = cpu_count()
+        with Pool(n_processes) as pool:
+            rec_identities = list(pool.imap(_max_id_to_train, test_df['receptor_seq'].tolist(), chunksize=10))
+            lig_identities = list(pool.imap(_max_id_to_train, test_df['ligand_seq'].tolist(), chunksize=10))
+
+        test_df['max_id_to_train_receptor'] = rec_identities
+        test_df['max_id_to_train_ligand'] = lig_identities
+
+        test_df.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'test_with_identities.csv'), index=False)
+
 
     # print collected results
     print(f"Using dataset splits from:\nTrain: {train_csv}\nVal: {val_csv}\nTest: {test_csv}\n")
