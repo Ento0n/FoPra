@@ -554,6 +554,14 @@ def main():
     parser.add_argument('--token', type=str, default=None, required=True, help='Token for WandB login')
     parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
     parser.add_argument('--random_forest', action='store_true', help='If set, run Random Forest classifier instead of NN')
+    parser.add_argument('--lrp', action='store_true', help='If set, perform LRP analysis after testing')
+    parser.add_argument('--judith_test', action='store_true', help='If set, use Judith gold standard test set')
+
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--residue', action='store_true', help='Use residue-level embeddings instead of mean embeddings')
+    group.add_argument('--one_hot', action='store_true', help='Use one-hot encoding instead of embeddings')
+
+
 
     args = parser.parse_args()
 
@@ -563,52 +571,55 @@ def main():
     # Define the amino acid alphabet (can adapt if you want gaps, X, etc.)
     AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXBU"
     aa_to_idx = {aa: i for i, aa in enumerate(AA_ALPHABET)}
-
-    # Arguments
-    residue = False
-    one_hot = False
-    lrp = True
-    judith_test = False
     
-    if residue:
+    # set embedding type
+    if args.residue:
         embedding_type = "residue"
     else:
         embedding_type = "mean"
     
+    # embedding cache dir
     cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
     
-    if not one_hot:
+    # print encoding type
+    if not args.one_hot:
         print(f"Using {embedding_type} embeddings\n")
         print(f"Using embedding cache dir: {cache_dir}\n")
     else:
         print("Using one-hot encoding\n")
     
+    # print dataset path
     print(f"Using dataset path: {args.path}")
 
+    # dataset paths to csv files
     train_csv = os.path.join(args.path, "train.csv")
     val_csv = os.path.join(args.path, "val.csv")
     test_csv = os.path.join(args.path, "test.csv")
 
-    if judith_test:
+    # set up judith test set if specified
+    if args.judith_test:
         test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test_pinder.csv"
         print(f"Using Judith test set at: {test_csv}")
 
+    # !!!!arguments not sure what will happen with in the future!!!!
     kernel_size = 2  # Default kernel size, can be adjusted
     wandb_mode = "disabled"  # Change to "online" to enable WandB logging, "disabled" to disable it
 
+    # execute random forest if specified
     if args.random_forest:
         handle_random_forest(train_csv, test_csv)
         sys.exit(0)
 
     # PIPELINE
-    device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wandb_mode)
-    model, optimizer, criterion = setup_model(train_loader, device, run, residue)
+    device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, args.residue, args.one_hot, kernel_size, wandb_mode)
+    model, optimizer, criterion = setup_model(train_loader, device, run, args.residue)
     train(device, run, model, optimizer, criterion, train_loader, val_loader)
     test(device, model, test_loader)
 
-    if lrp:
+    # LRP analysis if specified
+    if args.lrp:
         print("Executing LRP on test set!!\n")
-        exec_lrp_simple_interaction_net(model, device, test_loader, one_hot)
+        exec_lrp_simple_interaction_net(model, device, test_loader, args.one_hot)
 
 if __name__ == "__main__":
     main()
