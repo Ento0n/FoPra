@@ -480,22 +480,32 @@ def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
 
     mean_pos = (pos_sum / max(pos_count, 1)).detach().cpu().numpy() if pos_count > 0 else None
     mean_neg = (neg_sum / max(neg_count, 1)).detach().cpu().numpy() if neg_count > 0 else None
+    
+    # k highest influences
+    k = 3
 
-    # Biggest influence receptor and ligand ?
+    rec_idxs = np.argsort(mean_rec)[-k:][::-1]
+    lig_idxs = np.argsort(mean_lig)[-k:][::-1]
+    rec_vals = mean_rec[rec_idxs]
+    lig_vals = mean_lig[lig_idxs]
 
-    max_rec_idx = np.argmax(mean_rec)
-    max_lig_idx = np.argmax(mean_lig)
-    print(f"Max relevance receptor feature index: {max_rec_idx} (mean |R_in|={mean_rec[max_rec_idx]:.6f})")
-    print(f"Max relevance ligand feature index: {max_lig_idx} (mean |R_in|={mean_lig[max_lig_idx]:.6f})\n")
+    print(f"Top-{k} receptor feature indices with highest mean |R_in|:")
+    for i in range(k):
+        print(f" {i+1}: index {rec_idxs[i]}, mean |R_in|={rec_vals[i]}")
+        if one_hot:
+            aa_idx = rec_idxs[i] % len(AA_ALPHABET)
+            pos_idx = rec_idxs[i] // len(AA_ALPHABET)
+            print(f"     -> position {pos_idx}, amino acid '{AA_ALPHABET[aa_idx]}'")
+    print("\n")
 
-    if one_hot:
-        print("Interpreting one-hot indices:")
-        aa_idx_rec = max_rec_idx % len(AA_ALPHABET)
-        pos_idx_rec = max_rec_idx // len(AA_ALPHABET)
-        aa_idx_lig = max_lig_idx % len(AA_ALPHABET)
-        pos_idx_lig = max_lig_idx // len(AA_ALPHABET)
-        print(f" -> Receptor: position {pos_idx_rec}, amino acid '{AA_ALPHABET[aa_idx_rec]}'")
-        print(f" -> Ligand:   position {pos_idx_lig}, amino acid '{AA_ALPHABET[aa_idx_lig]}'\n")
+    print(f"Top-{k} ligand feature indices with highest mean |R_in|:")
+    for i in range(k):
+        print(f" {i+1}: index {lig_idxs[i]}, mean |R_in|={lig_vals[i]}")
+        if one_hot:
+            aa_idx = lig_idxs[i] % len(AA_ALPHABET)
+            pos_idx = lig_idxs[i] // len(AA_ALPHABET)
+            print(f"     -> position {pos_idx}, amino acid '{AA_ALPHABET[aa_idx]}'")
+    print("\n")
 
     # Plots
     x_all = np.arange(mean_all.shape[0])
