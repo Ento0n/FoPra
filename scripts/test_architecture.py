@@ -16,6 +16,7 @@ from models.baseline_fc_conv import baseline2d
 from functools import partial
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 # wrap a pandas DataFrame of sequence pairs into a torch Dataset
@@ -409,10 +410,6 @@ def lrp_simple_interaction_net(model, rec_emb, lig_emb, start_from, target, rule
     return R_in, R_rec, R_lig, {"prob": prob.squeeze(-1), "logit": logit.squeeze(-1)}
 
 def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
-
-    out_dir = "/nfs/scratch/pinder/negative_dataset/my_repository/plots"
-    os.makedirs(out_dir, exist_ok=True)
-
     model.eval()
 
     total_sum = None
@@ -507,53 +504,30 @@ def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
             print(f"     -> position {pos_idx}, amino acid '{AA_ALPHABET[aa_idx]}'")
     print("\n")
 
-    # Plots
-    x_all = np.arange(mean_all.shape[0])
-    x_rec = np.arange(mean_rec.shape[0])
-    x_lig = np.arange(mean_lig.shape[0])
+    # PLOTTING
 
-    # Combined mean relevance
-    plt.figure(figsize=(14, 4))
-    plt.plot(x_all, mean_all, linewidth=0.8, label="Mean |R_in|")
-    if mean_pos is not None:
-        plt.plot(x_all, mean_pos, linewidth=0.8, alpha=0.8, label="Mean |R_in| (pos)")
-    if mean_neg is not None:
-        plt.plot(x_all, mean_neg, linewidth=0.8, alpha=0.8, label="Mean |R_in| (neg)")
-    if d_rec is not None:
-        plt.axvline(d_rec - 0.5, color="k", linestyle="--", alpha=0.3, label="receptor | ligand split")
-    plt.title("Mean absolute input relevance over all test batches")
-    plt.xlabel("Feature index (receptor | ligand)")
-    plt.ylabel("Mean |relevance|")
-    plt.legend()
-    out_path_all = os.path.join(out_dir, "mean_lrp_mean_abs_input_relevance_all.png")
-    plt.tight_layout()
-    plt.savefig(out_path_all, dpi=200)
-    plt.close()
-    print(f"Saved: {out_path_all}")
+    out_dir = "/nfs/scratch/pinder/negative_dataset/my_repository/plots"
+    os.makedirs(out_dir, exist_ok=True)
 
-    # Receptor-only
-    plt.figure(figsize=(14, 4))
-    plt.plot(x_rec, mean_rec, linewidth=0.8)
-    plt.title("Mean absolute receptor input relevance")
-    plt.xlabel("Receptor feature index")
-    plt.ylabel("Mean |relevance|")
-    out_path_rec = os.path.join(out_dir, "mean_lrp_mean_abs_input_relevance_receptor.png")
-    plt.tight_layout()
-    plt.savefig(out_path_rec, dpi=200)
-    plt.close()
-    print(f"Saved: {out_path_rec}")
+    sns.set_theme()
 
-    # Ligand-only
-    plt.figure(figsize=(14, 4))
-    plt.plot(x_lig, mean_lig, linewidth=0.8)
-    plt.title("Mean absolute ligand input relevance")
-    plt.xlabel("Ligand feature index")
-    plt.ylabel("Mean |relevance|")
-    out_path_lig = os.path.join(out_dir, "mean_lrp_mean_abs_input_relevance_ligand.png")
-    plt.tight_layout()
-    plt.savefig(out_path_lig, dpi=200)
-    plt.close()
-    print(f"Saved: {out_path_lig}")
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(10, 12), sharex=True, sharey=True)
+
+    sns.lineplot(x=np.arange(len(mean_all)), y=mean_all, ax=axes[0], color="blue")
+    axes[0].set_title("Total Mean |R_in|")
+
+    sns.lineplot(x=np.arange(len(mean_pos)), y=mean_pos, ax=axes[1], color="green")
+    axes[1].set_title("Positive Mean |R_in|")
+
+    sns.lineplot(x=np.arange(len(mean_neg)), y=mean_neg, ax=axes[2], color="red")
+    axes[2].set_title("Negative Mean |R_in|")
+    axes[2].set_xlabel("Feature Index")
+
+    for ax in axes:
+        ax.set_ylabel("Mean |R_in|")
+        ax.axvline(x=d_rec, color="black", linestyle=":", label="Receptor/Ligand Split")
+
+    plt.savefig(os.path.join(out_dir, "lrp_total_mean.png"))
 
         
 
