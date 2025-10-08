@@ -65,9 +65,13 @@ if __name__ == "__main__":
     val_df = replace_sequences(val_df, full_seqs)
     test_df = replace_sequences(test_df, full_seqs)
 
-    train_df = sample_negatives(train_df, split="train", n_samples=len(train_df))
-    val_df = sample_negatives(val_df, split="val", n_samples=len(val_df))
-    test_df = sample_negatives(test_df, split="test", n_samples=len(test_df))
+    neg_train_df = sample_negatives(train_df, split="train", n_samples=len(train_df))
+    neg_val_df = sample_negatives(val_df, split="val", n_samples=len(val_df))
+    neg_test_df = sample_negatives(test_df, split="test", n_samples=len(test_df))
+
+    train_df = pd.concat([train_df, neg_train_df], ignore_index=True)
+    val_df = pd.concat([val_df, neg_val_df], ignore_index=True)
+    test_df = pd.concat([test_df, neg_test_df], ignore_index=True)
 
     train_df.to_csv(os.path.join(uniprot_path, "train.csv"), index=False)
     val_df.to_csv(os.path.join(uniprot_path, "val.csv"), index=False)
