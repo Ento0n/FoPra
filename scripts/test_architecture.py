@@ -168,7 +168,7 @@ def setup_model(train_loader, device, run, residue):
     # 2. Setup device, model, optimizer, and loss function
     if residue:
         rec_emb_sample, _,  _ = next(iter(train_loader))
-        embed_dim = rec_emb_sample.size(2)  # Assuming the embedding dimension is the second dimension
+        embed_dim = rec_emb_sample.size(2)  # Assuming the embedding dimension is the third dimension
     else:
         rec_emb_sample, lig_emb_sample, _ = next(iter(train_loader))
         embed_dim = rec_emb_sample.size(1) + lig_emb_sample.size(1)  # Assuming the embedding dimension is the second dimension
@@ -185,7 +185,8 @@ def setup_model(train_loader, device, run, residue):
     optimizer = optim.Adam(model.parameters(), lr=run.config.learning_rate)
 
     # Binary Cross Entropy Loss for binary classification
-    criterion = nn.BCELoss()
+    # criterion = nn.BCELoss()
+    criterion = nn.BCEWithLogitsLoss()  # more stable than BCELoss with separate sigmoid
 
     # Give model to WandB
     wandb.watch(model, log="all", log_freq=100)
@@ -232,7 +233,8 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader):
                 val_loss += loss.item()
 
                 # Accuracy
-                preds = (logits > 0.5).float() # (B)
+                probs = torch.sigmoid(logits) # (B)
+                preds = (probs > 0.5).float() # (B)
 
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
@@ -257,7 +259,8 @@ def test(device, model, test_loader):
             logits = model(rec_emb, lig_emb)
 
             # Accuracy
-            preds = (logits > 0.5).float()
+            probs = torch.sigmoid(logits)
+            preds = (probs > 0.5).float()
 
             correct += (preds == labels).sum().item()
             total += labels.size(0)
@@ -405,7 +408,7 @@ def lrp_simple_interaction_net(model, rec_emb, lig_emb, start_from, target, rule
 
     return R_in, R_rec, R_lig, {"prob": prob.squeeze(-1), "logit": logit.squeeze(-1)}
 
-def exec_lrp_simple_interaction_net(model, device, test_loader):
+def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
 
     out_dir = "/nfs/scratch/pinder/negative_dataset/my_repository/plots"
     os.makedirs(out_dir, exist_ok=True)
@@ -478,6 +481,22 @@ def exec_lrp_simple_interaction_net(model, device, test_loader):
     mean_pos = (pos_sum / max(pos_count, 1)).detach().cpu().numpy() if pos_count > 0 else None
     mean_neg = (neg_sum / max(neg_count, 1)).detach().cpu().numpy() if neg_count > 0 else None
 
+    # Biggest influence receptor and ligand ?
+
+    max_rec_idx = np.argmax(mean_rec)
+    max_lig_idx = np.argmax(mean_lig)
+    print(f"Max relevance receptor feature index: {max_rec_idx} (mean |R_in|={mean_rec[max_rec_idx]:.6f})")
+    print(f"Max relevance ligand feature index: {max_lig_idx} (mean |R_in|={mean_lig[max_lig_idx]:.6f})\n")
+
+    if one_hot:
+        print("Interpreting one-hot indices:")
+        aa_idx_rec = max_rec_idx % len(AA_ALPHABET)
+        pos_idx_rec = max_rec_idx // len(AA_ALPHABET)
+        aa_idx_lig = max_lig_idx % len(AA_ALPHABET)
+        pos_idx_lig = max_lig_idx // len(AA_ALPHABET)
+        print(f" -> Receptor: position {pos_idx_rec}, amino acid '{AA_ALPHABET[aa_idx_rec]}'")
+        print(f" -> Ligand:   position {pos_idx_lig}, amino acid '{AA_ALPHABET[aa_idx_lig]}'\n")
+
     # Plots
     x_all = np.arange(mean_all.shape[0])
     x_rec = np.arange(mean_rec.shape[0])
@@ -496,7 +515,7 @@ def exec_lrp_simple_interaction_net(model, device, test_loader):
     plt.xlabel("Feature index (receptor | ligand)")
     plt.ylabel("Mean |relevance|")
     plt.legend()
-    out_path_all = os.path.join(out_dir, "one_hot_lrp_mean_abs_input_relevance_all.png")
+    out_path_all = os.path.join(out_dir, "mean_lrp_mean_abs_input_relevance_all.png")
     plt.tight_layout()
     plt.savefig(out_path_all, dpi=200)
     plt.close()
@@ -508,7 +527,7 @@ def exec_lrp_simple_interaction_net(model, device, test_loader):
     plt.title("Mean absolute receptor input relevance")
     plt.xlabel("Receptor feature index")
     plt.ylabel("Mean |relevance|")
-    out_path_rec = os.path.join(out_dir, "one_hot_lrp_mean_abs_input_relevance_receptor.png")
+    out_path_rec = os.path.join(out_dir, "mean_lrp_mean_abs_input_relevance_receptor.png")
     plt.tight_layout()
     plt.savefig(out_path_rec, dpi=200)
     plt.close()
@@ -520,7 +539,7 @@ def exec_lrp_simple_interaction_net(model, device, test_loader):
     plt.title("Mean absolute ligand input relevance")
     plt.xlabel("Ligand feature index")
     plt.ylabel("Mean |relevance|")
-    out_path_lig = os.path.join(out_dir, "one_hot_lrp_mean_abs_input_relevance_ligand.png")
+    out_path_lig = os.path.join(out_dir, "mean_lrp_mean_abs_input_relevance_ligand.png")
     plt.tight_layout()
     plt.savefig(out_path_lig, dpi=200)
     plt.close()
@@ -547,7 +566,7 @@ def main():
 
     # Arguments
     residue = False
-    one_hot = True
+    one_hot = False
     lrp = True
     judith_test = False
     
@@ -556,11 +575,14 @@ def main():
     else:
         embedding_type = "mean"
     
+    cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
+    
     if not one_hot:
         print(f"Using {embedding_type} embeddings\n")
+        print(f"Using embedding cache dir: {cache_dir}\n")
     else:
         print("Using one-hot encoding\n")
-
+    
     print(f"Using dataset path: {args.path}")
 
     train_csv = os.path.join(args.path, "train.csv")
@@ -570,8 +592,6 @@ def main():
     if judith_test:
         test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test_pinder.csv"
         print(f"Using Judith test set at: {test_csv}")
-
-    cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
 
     kernel_size = 2  # Default kernel size, can be adjusted
     wandb_mode = "disabled"  # Change to "online" to enable WandB logging, "disabled" to disable it
@@ -587,8 +607,8 @@ def main():
     test(device, model, test_loader)
 
     if lrp:
-        print("Executing LRP on first batch of test set...\n")
-        exec_lrp_simple_interaction_net(model, device, test_loader)
+        print("Executing LRP on test set!!\n")
+        exec_lrp_simple_interaction_net(model, device, test_loader, one_hot)
 
 if __name__ == "__main__":
     main()

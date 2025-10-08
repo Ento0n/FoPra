@@ -14,7 +14,7 @@ class SimpleInteractionNet(nn.Module):
             nn.ReLU(inplace=True),
             nn.Dropout(0.3),
             nn.Linear(768, 1),  # Output single value for binary classification
-            nn.Sigmoid()
+            # nn.Sigmoid()
         )
 
     def forward(self, rec_emb, lig_emb):
