@@ -609,6 +609,7 @@ def main():
         test_df['pred'] = all_preds
         test_df['check_labels'] = all_labels
         out_csv = os.path.join(args.path, "test_predictions.csv")
+        test_df.to_csv(out_csv, index=False)
 
     # LRP analysis if specified
     if args.lrp:
