@@ -273,6 +273,8 @@ def test(device, model, test_loader):
     print(f"Test accuracy: {correct/total*100:.2f}%\n")
     print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}\n")
 
+    return all_preds, all_labels
+
 def handle_random_forest(train_csv, test_csv):
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.metrics import classification_report, accuracy_score
@@ -540,6 +542,7 @@ def main():
     parser.add_argument('--random_forest', action='store_true', help='If set, run Random Forest classifier instead of NN')
     parser.add_argument('--lrp', action='store_true', help='If set, perform LRP analysis after testing')
     parser.add_argument('--judith_test', action='store_true', help='If set, use Judith gold standard test set')
+    parser.add_argument('--save_predictions', action='store_true', help='If set, save predictions to a CSV file')
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--residue', action='store_true', help='Use residue-level embeddings instead of mean embeddings')
@@ -598,7 +601,14 @@ def main():
     device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, args.residue, args.one_hot, kernel_size, wandb_mode)
     model, optimizer, criterion = setup_model(train_loader, device, run, args.residue)
     train(device, run, model, optimizer, criterion, train_loader, val_loader)
-    test(device, model, test_loader)
+    all_preds, all_labels = test(device, model, test_loader)
+
+    if args.save_predictions:
+        print("Saving test predictions to CSV file...\n")
+        test_df = pd.read_csv(test_csv)
+        test_df['pred'] = all_preds
+        test_df['check_labels'] = all_labels
+        out_csv = os.path.join(args.path, "test_predictions.csv")
 
     # LRP analysis if specified
     if args.lrp:
