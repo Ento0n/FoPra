@@ -4,25 +4,35 @@ import os
 from create_dataset import sample_negatives
 
 def replace_sequences(df, seq_dict):
+    missing = {}
     for idx, row in df.iterrows():
         rec_uniprot = row["entry"].split("--")[0].split("_")[-1]
         lig_uniprot = row["entry"].split("--")[1].split("_")[-1]
 
-        if rec_uniprot == "B2UQL7" or lig_uniprot == "B2UQL7":
-            print(f"rec seq in df at {idx} is: {df.at[idx, 'rec_seq']}")
-            print(f"lig seq in df at {idx} is: {df.at[idx, 'lig_seq']}")
-            print(f"dict entry is: {seq_dict['B2UQL7']}")
-
+        # handle receptor sequence
         if rec_uniprot in seq_dict.keys():
-            df.at[idx, "rec_seq"] = seq_dict[rec_uniprot]
-        else:
-            print(f"Missing {rec_uniprot}")
+            df.at[idx, "receptor_seq"] = seq_dict[rec_uniprot]
+        else:       
+            if rec_uniprot not in missing.keys():
+                missing[rec_uniprot] = 0
+            else:
+                missing[rec_uniprot] += 1
 
+        # handle ligand sequence
         if lig_uniprot in seq_dict.keys():
-            df.at[idx, "lig_seq"] = seq_dict[lig_uniprot]
+            df.at[idx, "ligand_seq"] = seq_dict[lig_uniprot]
         else:
-            print(f"Missing {lig_uniprot}")
-        
+            if lig_uniprot not in missing.keys():
+                missing[lig_uniprot] = 0
+            else:
+                missing[lig_uniprot] += 1
+    
+    if len(missing.keys()) > 0:
+        print(f"Missing {len(missing.keys())} sequences:")
+        for k, v in missing.items():
+            print(f"{k}: {v}")
+        print("\n")
+
     return df
 
 if __name__ == "__main__":
