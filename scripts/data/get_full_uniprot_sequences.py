@@ -34,18 +34,39 @@ if __name__ == "__main__":
 
         # parse fasta to dictionary
         lines = r.text.split("\n")
+
+        # parse fasta to dictionary
         uid = None
         seq = []
-        for line in lines:
+        collecting = False
+        for i, line in enumerate(lines):
+            if i == len(lines)-1:
+                # save last entry
+                if collecting:
+                    out[uid] = "".join(seq)
+
             if line.startswith(">"):
-                if uid not in out.keys() and uid is not None:
+                # save previous, only not the case for first entry
+                if collecting:
                     out[uid] = "".join(seq)
                     seq = []
 
-                uid = line[1:].split("|")[1]
+                uid = line.strip().split("|")[1]
+                collecting = True
+
             else:
                 seq.append(line.strip())
-    
+
+    # Missing ids in the output
+    print("\n")
+    missing = []
+    for id in ids:
+        if id not in out.keys():
+            missing.append(id)
+    print(f"Missing {len(missing)} / {len(ids)} uniprot ids:")
+    print(",".join(missing))
+
+    # write to fasta
     out_file = os.path.join(path, "full_uniprot_sequences.fasta")
     with open(out_file, "w") as f:
         for uid, seq in out.items():
