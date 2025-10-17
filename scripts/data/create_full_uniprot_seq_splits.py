@@ -35,7 +35,7 @@ def replace_sequences(df, seq_dict):
 
     return df
 
-if __name__ == "__main__":
+def create_full_uniprot_seq_splits():
     splits_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit"
     train_df = pd.read_csv(os.path.join(splits_path, "train.csv"))
     val_df = pd.read_csv(os.path.join(splits_path, "val.csv"))
@@ -87,4 +87,37 @@ if __name__ == "__main__":
     val_df.to_csv(os.path.join(uniprot_path, "val.csv"), index=False)
     test_df.to_csv(os.path.join(uniprot_path, "test.csv"), index=False)
 
+def add_sequences_from_uniparc():
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id"
+    tsv = os.path.join(path, "uniprot_uniparc_mapping.txt")
+
+    # read tsv file
+    with open(tsv, "r") as f:
+        seqs = {}
+        for line in f:
+            # skip first line
+            if line.startswith("From"):
+                continue
+
+            # parse line
+            parts = line.strip().split("\t")
+            uniprot_id = parts[0]
+            sequence = parts[2]
+
+            seqs[uniprot_id] = sequence
     
+    print(f"Adding {len(seqs)} sequences from uniparc to full_uniprot_sequences.fasta")
+    
+    # append to full_uniprot_sequences.fasta
+    fasta = os.path.join(path, "uniparc_sequences.fasta")
+    with open(fasta, "w") as f:
+        for uid, seq in seqs.items():
+            f.write(f">{uid}\n")
+            f.write(f"{seq}\n")
+
+if __name__ == "__main__":
+    # create full uniprot sequence splits
+    create_full_uniprot_seq_splits()
+
+    # add sequences from uniparc to fasta
+    # add_sequences_from_uniparc()
