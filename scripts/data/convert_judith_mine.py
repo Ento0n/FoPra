@@ -1,5 +1,7 @@
 import pandas as pd
 import sys
+import os
+from create_dataset import sample_negatives
 
 def create_split_df(pos_file_path, neg_file_path, seqs, split_name):
 
@@ -34,8 +36,7 @@ def create_split_df(pos_file_path, neg_file_path, seqs, split_name):
     df = pd.DataFrame(data, columns=["receptor_uniprot", "ligand_uniprot", "receptor_seq", "ligand_seq", "label", "split"])
     return df
     
-
-if __name__ == "__main__":
+def convert_directly():
     seqs_file = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/human_swissprot_oneliner.fasta"
 
     # Extract sequences from FASTA file
@@ -73,3 +74,33 @@ if __name__ == "__main__":
 
     test_df = create_split_df(test_pos_file, test_neg_file, seqs, "test")
     test_df.to_csv("/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test.csv", index=False)
+
+def sample_negatives_my_way():
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard"
+
+    train_df = pd.read_csv(os.path.join(path, "train.csv"))
+    val_df = pd.read_csv(os.path.join(path, "val.csv"))
+    test_df = pd.read_csv(os.path.join(path, "test.csv"))
+
+    train_df = train_df[train_df["label"] == 1]
+    val_df = val_df[val_df["label"] == 1]
+    test_df = test_df[test_df["label"] == 1]
+
+    train_negatives = sample_negatives(train_df, "train", len(train_df), False)
+    val_negatives = sample_negatives(val_df, "val", len(val_df), False)
+    test_negatives = sample_negatives(test_df, "test", len(test_df), False)
+
+    train_df = pd.concat([train_df, train_negatives], ignore_index=True)
+    val_df = pd.concat([val_df, val_negatives], ignore_index=True)
+    test_df = pd.concat([test_df, test_negatives], ignore_index=True)
+
+    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test_my_negative_sampling"
+    train_df.to_csv(os.path.join(out_path, "train.csv"), index=False)
+    val_df.to_csv(os.path.join(out_path, "val.csv"), index=False)
+    test_df.to_csv(os.path.join(out_path, "test.csv"), index=False)
+
+if __name__ == "__main__":
+
+    # convert_directly()
+
+    sample_negatives_my_way()
