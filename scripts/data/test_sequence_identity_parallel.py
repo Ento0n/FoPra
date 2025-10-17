@@ -85,9 +85,7 @@ def main():
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Test sequence identity between dataset splits")
-    parser.add_argument('--deleak_cdhit', action='store_true', help='Use by cdhit deleaked dataset')
-    parser.add_argument('--deleak_uniprot', action='store_true', help='Use by uniprot deleaked dataset')
-    parser.add_argument('--path', type=str, default='/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/', help='Base path for datasets')
+    parser.add_argument('--path', type=str, help='Base path for datasets')
     parser.add_argument('--judith_test', action='store_true', help='Use the judith test set created by create_judith_test.py')
     parser.add_argument('--save_seq_identities', action='store_true', help='Save all computed sequence identities to a CSV file')
 
@@ -98,26 +96,10 @@ def main():
 
     args = parser.parse_args()
 
-    # figure out which CSV files to use
-    if not args.deleak_uniprot and not args.deleak_cdhit:
-        train_csv = os.path.join(args.path, 'train.csv')
-        val_csv = os.path.join(args.path, 'val.csv')
-        test_csv = os.path.join(args.path, 'test.csv')
-    elif args.deleak_uniprot and not args.deleak_cdhit:
-        train_csv = os.path.join(args.path, 'deleak_uniprot', 'train.csv')
-        val_csv = os.path.join(args.path, 'deleak_uniprot', 'val.csv')
-        test_csv = os.path.join(args.path, 'deleak_uniprot', 'test.csv')
-    elif not args.deleak_uniprot and args.deleak_cdhit:
-        train_csv = os.path.join(args.path, f'deleak_cdhit', 'train.csv')
-        val_csv = os.path.join(args.path, f'deleak_cdhit', 'val.csv')
-        test_csv = os.path.join(args.path, f'deleak_cdhit', 'test.csv')
-    elif args.deleak_uniprot and args.deleak_cdhit:
-        train_csv = os.path.join(args.path, f'deleak_uniprot', 'deleak_cdhit', 'train.csv')
-        val_csv = os.path.join(args.path, f'deleak_uniprot', 'deleak_cdhit', 'val.csv')
-        test_csv = os.path.join(args.path, f'deleak_uniprot', 'deleak_cdhit', 'test.csv')
-    else:
-        print("This should never be reached. Check source code! :O")
-        sys.exit()
+    # Define dataset CSV paths
+    train_csv = os.path.join(args.path, "train.csv")
+    val_csv = os.path.join(args.path, "val.csv")
+    test_csv = os.path.join(args.path, "test.csv")
 
     if args.judith_test:
         test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test_pinder.csv"

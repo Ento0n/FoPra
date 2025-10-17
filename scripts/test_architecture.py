@@ -556,7 +556,7 @@ def main():
     global AA_ALPHABET, aa_to_idx
 
     # Define the amino acid alphabet (can adapt if you want gaps, X, etc.)
-    AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXBU"
+    AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXBUZO"  # 23 characters
     aa_to_idx = {aa: i for i, aa in enumerate(AA_ALPHABET)}
     
     # set embedding type
@@ -605,7 +605,7 @@ def main():
 
     if args.save_predictions:
         print("Saving test predictions to CSV file...\n")
-        test_df = pd.read_csv(test_csv)
+        test_df = pd.read_csv(os.path.join(args.path, "test_with_identities.csv"))
         test_df['pred'] = all_preds
         test_df['check_labels'] = all_labels
         out_csv = os.path.join(args.path, "test_predictions.csv")
