@@ -200,7 +200,7 @@ def create_fasta_file(df: pd.DataFrame, split: str, path: str) -> None:
         for i, seq in enumerate(all_seqs_unique):
             f.write(f">{f"{i}_{split}"}\n{seq}\n")
 
-def sample_negatives(df: pd.DataFrame, split: str, n_samples: int) -> pd.DataFrame:
+def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = True) -> pd.DataFrame:
     """
     Sample negative pairs for a given split, matching the sequence frequency distribution of positives.
 
@@ -228,18 +228,29 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int) -> pd.DataFra
     while len(neg_records) < n_samples:
         rec_seq = random.choices(rec_seqs, weights=rec_weights, k=1)[0]
         lig_seq = random.choices(lig_seqs, weights=lig_weights, k=1)[0]
+        
         if (rec_seq, lig_seq) in positives:
             continue
-        rec_path = df.loc[df['receptor_seq']==rec_seq, 'receptor_path'].iat[0]
-        lig_path = df.loc[df['ligand_seq']==lig_seq,   'ligand_path'].iat[0]
-        neg_records.append({
-            'split': split,
-            'receptor_seq': rec_seq,
-            'ligand_seq':  lig_seq,
-            'receptor_path': rec_path,
-            'ligand_path':  lig_path,
-            'label': 0
-        })
+
+        if path:
+            rec_path = df.loc[df['receptor_seq']==rec_seq, 'receptor_path'].iat[0]
+            lig_path = df.loc[df['ligand_seq']==lig_seq,   'ligand_path'].iat[0]
+            neg_records.append({
+                'split': split,
+                'receptor_seq': rec_seq,
+                'ligand_seq':  lig_seq,
+                'receptor_path': rec_path,
+                'ligand_path':  lig_path,
+                'label': 0
+            })
+        else:
+            neg_records.append({
+                'split': split,
+                'receptor_seq': rec_seq,
+                'ligand_seq':  lig_seq,
+                'label': 0
+            })
+
     return pd.DataFrame(neg_records)
 
 def deleak_by_uniprot(df: pd.DataFrame) -> pd.DataFrame:
