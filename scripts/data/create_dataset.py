@@ -102,8 +102,10 @@ def deleak_by_cdhit(train: pd.DataFrame, test: pd.DataFrame, path: str) -> tuple
         tuple: (train, test) DataFrames after deleaking.
     """
 
+    path = os.path.join(path, 'fasta')
+    
     print("Removing too similar sequences determined by CD-HIT-2D!")
-    print(f"Using CD-HIT-2D results from {os.path.join(args.path, 'fasta')} \n")
+    print(f"Using CD-HIT-2D results from {path} \n")
     print(f"Size of train split before CD-HIT deleaking: {len(train)}")
     print(f"Size of val split before CD-HIT deleaking: {len(val)}")
     print(f"Size of test split before CD-HIT deleaking: {len(test)} \n")
@@ -133,7 +135,7 @@ def remove_similar_sequences(df: pd.DataFrame, df_split: str, other_split: str, 
 
     # read not too similar sequence
     allowed_seqs = set()
-    with open(os.path.join(path, "fasta", f"{other_split}_{df_split}.out"), "r") as f:
+    with open(os.path.join(path, f"{other_split}_{df_split}.out"), "r") as f:
         for line in f:
             if line.startswith(">"):
                 allowed_seqs.add(next(f).strip())
@@ -200,7 +202,7 @@ def create_fasta_file(df: pd.DataFrame, split: str, path: str) -> None:
         for i, seq in enumerate(all_seqs_unique):
             f.write(f">{f"{i}_{split}"}\n{seq}\n")
 
-def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = True) -> pd.DataFrame:
+def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = True, self_interactions: bool = False) -> pd.DataFrame:
     """
     Sample negative pairs for a given split, matching the sequence frequency distribution of positives.
 
@@ -216,15 +218,71 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
         pd.DataFrame: DataFrame of negative pairs.
     """
 
+    # all positives
     positives = set(zip(df['receptor_seq'], df['ligand_seq']))
+
+    # receptor
     rec_counter = Counter(df['receptor_seq'])
     rec_seqs    = list(rec_counter.keys())
     rec_weights = [rec_counter[s] for s in rec_seqs]
+
+    # ligand
     lig_counter = Counter(df['ligand_seq'])
     lig_seqs    = list(lig_counter.keys())
     lig_weights = [lig_counter[s] for s in lig_seqs]
 
+    # Add as many self interactions as possible (depends on how many sequences are not already self interacting in positives)
     neg_records = []
+    if self_interactions:
+        self_interacting_df = df[df['receptor_seq'] == df['ligand_seq']]
+        n_self_interactions = len(self_interacting_df)
+
+        # sequences not self interacting
+        self_interacting_seqs = set(self_interacting_df['receptor_seq'])
+        rec_seqs_non_self = [s for s in rec_seqs if s not in self_interacting_seqs]
+        lig_seqs_non_self = [s for s in lig_seqs if s not in self_interacting_seqs]
+        seqs_non_self = rec_seqs_non_self + lig_seqs_non_self
+
+        if n_self_interactions < len(seqs_non_self):
+            seqs_non_self = seqs_non_self[:n_self_interactions]
+        
+        print(f"Adding {len(seqs_non_self)} self-interactions as negatives in split {split}.")
+        print(f"# of self interactions in positives: {n_self_interactions}\n")
+        
+        for seq in seqs_non_self:
+            if path:
+                rec_path_obj = df.loc[df['receptor_seq']==seq, 'receptor_path']
+                lig_path_obj = df.loc[df['ligand_seq']==seq,   'ligand_path']
+                print(f"rec_path: {rec_path_obj.empty}, lig_path: {lig_path_obj.empty}")
+                print(f"rec_path: {rec_path_obj}, lig_path: {lig_path_obj}")
+                if not rec_path_obj.empty:
+                    rec_path = rec_path_obj.iat[0]
+                    lig_path = rec_path_obj.iat[0]
+                elif not lig_path_obj.empty:
+                    rec_path = lig_path_obj.iat[0]
+                    lig_path = lig_path_obj.iat[0]
+                else:
+                    print(f"Warning: Could not find path for self-interacting sequence {seq} in split {split}. Paths will be set to None.")
+                    rec_path = None
+                    lig_path = None
+                
+                neg_records.append({
+                    'split': split,
+                    'receptor_seq': seq,
+                    'ligand_seq':  seq,
+                    'receptor_path': rec_path,
+                    'ligand_path':  lig_path,
+                    'label': 0
+                })
+            else:
+                neg_records.append({
+                    'split': split,
+                    'receptor_seq': seq,
+                    'ligand_seq':  seq,
+                    'label': 0
+                })
+
+
     while len(neg_records) < n_samples:
         rec_seq = random.choices(rec_seqs, weights=rec_weights, k=1)[0]
         lig_seq = random.choices(lig_seqs, weights=lig_weights, k=1)[0]

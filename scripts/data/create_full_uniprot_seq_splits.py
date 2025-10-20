@@ -1,7 +1,7 @@
 import pandas as pd
 import os
 
-from create_dataset import sample_negatives
+from create_dataset import sample_negatives, remove_similar_sequences
 
 def replace_sequences(df, seq_dict):
     missing = {}
@@ -12,7 +12,7 @@ def replace_sequences(df, seq_dict):
         # handle receptor sequence
         if rec_uniprot in seq_dict.keys():
             df.at[idx, "receptor_seq"] = seq_dict[rec_uniprot]
-        else:       
+        else:
             if rec_uniprot not in missing.keys():
                 missing[rec_uniprot] = 0
             else:
@@ -75,9 +75,9 @@ def create_full_uniprot_seq_splits():
     val_df = replace_sequences(val_df, full_seqs)
     test_df = replace_sequences(test_df, full_seqs)
 
-    neg_train_df = sample_negatives(train_df, split="train", n_samples=len(train_df))
-    neg_val_df = sample_negatives(val_df, split="val", n_samples=len(val_df))
-    neg_test_df = sample_negatives(test_df, split="test", n_samples=len(test_df))
+    neg_train_df = sample_negatives(train_df, split="train", n_samples=len(train_df), self_interactions=True)
+    neg_val_df = sample_negatives(val_df, split="val", n_samples=len(val_df), self_interactions=True)
+    neg_test_df = sample_negatives(test_df, split="test", n_samples=len(test_df), self_interactions=True)
 
     train_df = pd.concat([train_df, neg_train_df], ignore_index=True)
     val_df = pd.concat([val_df, neg_val_df], ignore_index=True)
@@ -115,9 +115,59 @@ def add_sequences_from_uniparc():
             f.write(f">{uid}\n")
             f.write(f"{seq}\n")
 
+def generate_fasta_splits():
+    # Read train, val and test sequences
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id"
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val = pd.read_csv(os.path.join(path, "val.csv"))
+    test = pd.read_csv(os.path.join(path, "test.csv"))
+
+    train_seqs = pd.concat([train['receptor_seq'], train['ligand_seq']]).drop_duplicates().tolist()
+    val_seqs = pd.concat([val['receptor_seq'], val['ligand_seq']]).drop_duplicates().tolist()
+    test_seqs = pd.concat([test['receptor_seq'], test['ligand_seq']]).drop_duplicates().tolist()
+
+    # write to fasta files
+    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id/cd_hit"
+    with open(os.path.join(out_path, "train.fasta"), "w") as f:
+        for i, seq in enumerate(train_seqs):
+            f.write(f">{i}_train\n{seq}\n")
+
+    with open(os.path.join(out_path, "val.fasta"), "w") as f:
+        for i, seq in enumerate(val_seqs):
+            f.write(f">{i}_val\n{seq}\n")
+
+    with open(os.path.join(out_path, "test.fasta"), "w") as f:
+        for i, seq in enumerate(test_seqs):
+            f.write(f">{i}_test\n{seq}\n")
+
+def deleak_uniprot_seq_splits():
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id"
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val = pd.read_csv(os.path.join(path, "val.csv"))
+    test = pd.read_csv(os.path.join(path, "test.csv"))
+
+    print("Deleaking uniprot sequence splits based on cd-hit-2d results...\n")
+
+    cd_hit_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id/cd_hit"
+    train = remove_similar_sequences(train, "train", "val", cd_hit_path)
+    train = remove_similar_sequences(train, "train", "test", cd_hit_path)
+    test = remove_similar_sequences(test, "test", "val", cd_hit_path)
+
+    print(f"After deleaking, train has {len(train)} entries, val has {len(val)} entries, test has {len(test)} entries.\n")
+
+    train.to_csv(os.path.join(path, "deleak_cd_hit", "train.csv"), index=False)
+    val.to_csv(os.path.join(path, "deleak_cd_hit", "val.csv"), index=False)
+    test.to_csv(os.path.join(path, "deleak_cd_hit", "test.csv"), index=False)
+
+
 if __name__ == "__main__":
     # create full uniprot sequence splits
     create_full_uniprot_seq_splits()
 
     # add sequences from uniparc to fasta
     # add_sequences_from_uniparc()
+
+    # generate fasta splits
+    # generate_fasta_splits()
+
+    # deleak_uniprot_seq_splits()

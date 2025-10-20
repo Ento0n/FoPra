@@ -1,7 +1,9 @@
 import pandas as pd
 import os
 
-def add_labels(identity_df_path, origin_df_path):
+def add_labels():
+    identity_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test_with_identities_raw.csv"
+    origin_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test.csv"
     identity_df = pd.read_csv(identity_df_path)
     origin_df = pd.read_csv(origin_df_path)
 
@@ -19,9 +21,17 @@ def add_labels(identity_df_path, origin_df_path):
     
     origin_df.to_csv(os.path.join("/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit", "test_with_identities.csv"), index=False)
 
+def add_test_classes():
+    test_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id/deleak_cd_hit"
+    test_df = pd.read_csv(os.path.join(test_df_path, "test.csv"))
+
+    # add self-interaction class
+    test_df["self_interaction"] = test_df.apply(lambda row: True if row["receptor_seq"] == row["ligand_seq"] else False, axis=1)
+
+    # save updated test_df
+    test_df.to_csv(os.path.join(test_df_path, "test_with_classes.csv"), index=False)
 
 if __name__ == "__main__":
-    identity_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test_with_identities_raw.csv"
-    origin_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test.csv"
+    # add_labels()
 
-    add_labels(identity_df_path, origin_df_path)
+    add_test_classes()
