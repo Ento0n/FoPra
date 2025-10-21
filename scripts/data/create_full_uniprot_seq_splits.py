@@ -75,13 +75,21 @@ def create_full_uniprot_seq_splits():
     val_df = replace_sequences(val_df, full_seqs)
     test_df = replace_sequences(test_df, full_seqs)
 
-    neg_train_df = sample_negatives(train_df, split="train", n_samples=len(train_df), self_interactions=True)
-    neg_val_df = sample_negatives(val_df, split="val", n_samples=len(val_df), self_interactions=True)
-    neg_test_df = sample_negatives(test_df, split="test", n_samples=len(test_df), self_interactions=True)
+    # Remove any rows with sequences > 2500 amino acids
+    print("Filtering sequences longer than 2500 amino acids...\n")
+    print(f"Before filtering, train has {len(train_df)} entries, val has {len(val_df)} entries, test has {len(test_df)} entries.\n")
+    train_df = train_df[(train_df["receptor_seq"].str.len() <= 2500) & (train_df["ligand_seq"].str.len() <= 2500)]
+    val_df = val_df[(val_df["receptor_seq"].str.len() <= 2500) & (val_df["ligand_seq"].str.len() <= 2500)]
+    test_df = test_df[(test_df["receptor_seq"].str.len() <= 2500) & (test_df["ligand_seq"].str.len() <= 2500)]
+    print(f"After filtering, train has {len(train_df)} entries, val has {len(val_df)} entries, test has {len(test_df)} entries.\n")
 
-    train_df = pd.concat([train_df, neg_train_df], ignore_index=True)
-    val_df = pd.concat([val_df, neg_val_df], ignore_index=True)
-    test_df = pd.concat([test_df, neg_test_df], ignore_index=True)
+    train_neg = sample_negatives(train_df, split="train", n_samples=len(train_df), self_interactions=True)
+    val_neg = sample_negatives(val_df, split="val", n_samples=len(val_df), self_interactions=True)
+    test_neg = sample_negatives(test_df, split="test", n_samples=len(test_df), self_interactions=True)
+
+    train_df = pd.concat([train_df, train_neg], ignore_index=True)
+    val_df = pd.concat([val_df, val_neg], ignore_index=True)
+    test_df = pd.concat([test_df, test_neg], ignore_index=True)
 
     train_df.to_csv(os.path.join(uniprot_path, "train.csv"), index=False)
     val_df.to_csv(os.path.join(uniprot_path, "val.csv"), index=False)
@@ -146,14 +154,31 @@ def deleak_uniprot_seq_splits():
     val = pd.read_csv(os.path.join(path, "val.csv"))
     test = pd.read_csv(os.path.join(path, "test.csv"))
 
+    # consider only positive samples for deleaking
+    train = train[train["label"] == 1]
+    val = val[val["label"] == 1]
+    test = test[test["label"] == 1]
+
+    # Deleaking based on cd-hit-2d results
     print("Deleaking uniprot sequence splits based on cd-hit-2d results...\n")
+
+    print(f"(POSITIVES) Before deleaking, train has {len(train)} entries, val has {len(val)} entries, test has {len(test)} entries.\n")
 
     cd_hit_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id/cd_hit"
     train = remove_similar_sequences(train, "train", "val", cd_hit_path)
     train = remove_similar_sequences(train, "train", "test", cd_hit_path)
     test = remove_similar_sequences(test, "test", "val", cd_hit_path)
 
-    print(f"After deleaking, train has {len(train)} entries, val has {len(val)} entries, test has {len(test)} entries.\n")
+    print(f"(POSITIVES) After deleaking, train has {len(train)} entries, val has {len(val)} entries, test has {len(test)} entries.\n")
+
+    # sample negatives after deleaking
+    neg_train = sample_negatives(train, split="train", n_samples=len(train), self_interactions=True)
+    neg_val = sample_negatives(val, split="val", n_samples=len(val), self_interactions=True)
+    neg_test = sample_negatives(test, split="test", n_samples=len(test), self_interactions=True)
+
+    train = pd.concat([train, neg_train], ignore_index=True)
+    val = pd.concat([val, neg_val], ignore_index=True)
+    test = pd.concat([test, neg_test], ignore_index=True)
 
     train.to_csv(os.path.join(path, "deleak_cd_hit", "train.csv"), index=False)
     val.to_csv(os.path.join(path, "deleak_cd_hit", "val.csv"), index=False)
