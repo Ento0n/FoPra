@@ -26,10 +26,23 @@ def add_test_classes():
     test_df = pd.read_csv(os.path.join(test_df_path, "test.csv"))
 
     # add self-interaction class
-    test_df["self_interaction"] = test_df.apply(lambda row: True if row["receptor_seq"] == row["ligand_seq"] else False, axis=1)
+    test_df["class"] = test_df.apply(lambda row: "self" if row["receptor_seq"] == row["ligand_seq"] else "non-self", axis=1)
+
+    # create sequence to uniprot mapping
+    seq_to_uniprot = {}
+    test_pos = test_df[test_df["label"] == 1]
+    for _, row in test_pos.iterrows():
+        rec_uniprot = row["entry"].split("--")[0].split("_")[-1]
+        lig_uniprot = row["entry"].split("--")[1].split("_")[-1]
+
+        seq_to_uniprot[row["receptor_seq"]] = rec_uniprot
+        seq_to_uniprot[row["ligand_seq"]] = lig_uniprot
+
+    # add UNDEFINED class based on uniprot accession
+    test_df["class"] = test_df.apply(lambda row: "undefined" if seq_to_uniprot[row["receptor_seq"]] == "UNDEFINED" or seq_to_uniprot[row["ligand_seq"]] == "UNDEFINED" else row["class"], axis=1)
 
     # save updated test_df
-    test_df.to_csv(os.path.join(test_df_path, "test_with_classes.csv"), index=False)
+    test_df.to_csv(os.path.join(test_df_path, "test.csv"), index=False)
 
 if __name__ == "__main__":
     # add_labels()

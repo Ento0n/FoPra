@@ -187,7 +187,7 @@ def deleak_uniprot_seq_splits():
 
 if __name__ == "__main__":
     # create full uniprot sequence splits
-    create_full_uniprot_seq_splits()
+    # create_full_uniprot_seq_splits()
 
     # add sequences from uniparc to fasta
     # add_sequences_from_uniparc()
@@ -195,4 +195,4 @@ if __name__ == "__main__":
     # generate fasta splits
     # generate_fasta_splits()
 
-    # deleak_uniprot_seq_splits()
+    deleak_uniprot_seq_splits()

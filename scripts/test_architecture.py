@@ -33,6 +33,21 @@ class SequencePairDataset(Dataset):
             'label': torch.tensor(row['label'], dtype=torch.long)
         }
 
+# Torch Dataset considering test classes
+class SequencePairDatasetWithClasses(Dataset):
+    def __init__(self, df):
+        self.df = df.reset_index(drop=True)
+    def __len__(self):
+        return len(self.df)
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        return {
+            'receptor_seq': row['receptor_seq'],
+            'ligand_seq': row['ligand_seq'],
+            'label': torch.tensor(row['label'], dtype=torch.long),
+            'class': row['class']
+        }
+
 def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wand_mode="online"):
     #################__Torch device__################
 
@@ -70,7 +85,7 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size
     # instantiate datasets
     train_dataset = SequencePairDataset(train_df)
     val_dataset   = SequencePairDataset(val_df)
-    test_dataset  = SequencePairDataset(test_df)
+    test_dataset  = SequencePairDatasetWithClasses(test_df)
 
     # Compute fixed global pad lengths for one-hot case to keep model input size constant
     pad_rec_len = None
@@ -249,11 +264,14 @@ def test(device, model, test_loader):
     # 5. Test the model
     model.eval()
     correct, total = 0, 0
+    correct_self, total_self = 0, 0
+    correct_nonself, total_nonself = 0, 0
+    correct_undefined, total_undefined = 0, 0
     all_preds = []
     all_labels = []
     with torch.no_grad():
-        for rec_emb, lig_emb, labels in test_loader:
-            rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
+        for rec_emb, lig_emb, labels, classes in test_loader:
+            rec_emb, lig_emb, labels, classes = rec_emb.to(device), lig_emb.to(device), labels.to(device), classes.to(device)
 
             labels = labels.float()  # Convert labels to float for BCELoss
 
@@ -263,14 +281,34 @@ def test(device, model, test_loader):
             probs = torch.sigmoid(logits)
             preds = (probs > 0.5).float()
 
+            # general
             correct += (preds == labels).sum().item()
             total += labels.size(0)
+
+            # self
+            correct_self += ((preds == labels) & (classes == "self")).sum().item()
+            total_self += (classes == "self").sum().item()
+
+            # non-self
+            correct_nonself += ((preds == labels) & (classes == "non-self")).sum().item()
+            total_nonself += (classes == "non-self").sum().item()
+
+            # undefined
+            correct_undefined += ((preds == labels) & (classes == "undefined")).sum().item()
+            total_undefined += (classes == "undefined").sum().item()
 
             # Collect all preds and labels for confusion matrix
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
-    print(f"Test accuracy: {correct/total*100:.2f}%\n")
+    print(f"General test accuracy: {correct/total*100:.2f}%\n")
+
+    print(f"Self-interaction test accuracy: {correct_self/total_self*100:.2f}% ({total_self} samples)\n")
+
+    print(f"Non-self-interaction test accuracy: {correct_nonself/total_nonself*100:.2f}% ({total_nonself} samples)\n")
+
+    print(f"Undefined class test accuracy: {correct_undefined/total_undefined*100:.2f}% ({total_undefined} samples)\n")
+
     print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}\n")
 
     return all_preds, all_labels

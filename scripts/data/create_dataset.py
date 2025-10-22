@@ -253,8 +253,6 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
             if path:
                 rec_path_obj = df.loc[df['receptor_seq']==seq, 'receptor_path']
                 lig_path_obj = df.loc[df['ligand_seq']==seq,   'ligand_path']
-                print(f"rec_path: {rec_path_obj.empty}, lig_path: {lig_path_obj.empty}")
-                print(f"rec_path: {rec_path_obj}, lig_path: {lig_path_obj}")
                 if not rec_path_obj.empty:
                     rec_path = rec_path_obj.iat[0]
                     lig_path = rec_path_obj.iat[0]
