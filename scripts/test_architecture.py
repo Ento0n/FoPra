@@ -101,11 +101,12 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size
         pad_lig_len = int(max(lig_max_train, lig_max_val, lig_max_test))
         print(f"Using fixed one-hot pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}\n")
 
-    collate = partial(collate_fn, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
+    collate = partial(collate_fn, test=False, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
+    collate_test = partial(collate_fn, test=True, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
 
     train_loader = DataLoader(train_dataset, batch_size=run.config.batch_size, shuffle=True, collate_fn=collate)
     val_loader   = DataLoader(val_dataset,   batch_size=run.config.batch_size,               collate_fn=collate)
-    test_loader  = DataLoader(test_dataset,  batch_size=run.config.batch_size,               collate_fn=collate)
+    test_loader  = DataLoader(test_dataset,  batch_size=run.config.batch_size,               collate_fn=collate_test)
 
     return device, run, train_loader, val_loader, test_loader
 
@@ -128,7 +129,7 @@ def aa_one_hot(seq: str) -> torch.Tensor:
     return one_hot.float()  # often float is convenient for models
 
 # custom collate function to handle variable-length sequences
-def collate_fn(batch, cache_dir, residue, one_hot, kernel_size, pad_rec_len, pad_lig_len):
+def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_len, pad_lig_len):
     labels = torch.stack([b["label"] for b in batch])
     recs = []
     ligs = []
@@ -175,6 +176,22 @@ def collate_fn(batch, cache_dir, residue, one_hot, kernel_size, pad_rec_len, pad
         # flatten the one hot encoding and stack batch in 1 tensor
         recs = torch.stack([torch.flatten(rec) for rec in recs]) # (B, A * padded_Lr)
         ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (B, A * padded_Ll)
+    
+    # for test set, also return classes
+    if test:
+        # encode to integer classes for torch tensor
+        classes = []
+        for b in batch:
+            cls = b["class"]
+            if cls == "self":
+                classes.append(1)
+            elif cls == "non-self":
+                classes.append(2)
+            elif cls == "undefined":
+                classes.append(3)
+        classes = torch.tensor(classes, dtype=torch.long)
+        
+        return recs, ligs, labels, classes
 
     return recs, ligs, labels
 
@@ -271,7 +288,7 @@ def test(device, model, test_loader):
     all_labels = []
     with torch.no_grad():
         for rec_emb, lig_emb, labels, classes in test_loader:
-            rec_emb, lig_emb, labels, classes = rec_emb.to(device), lig_emb.to(device), labels.to(device), classes.to(device)
+            rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
 
             labels = labels.float()  # Convert labels to float for BCELoss
 
@@ -285,17 +302,21 @@ def test(device, model, test_loader):
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
+            # move pred and labels to cpu for class-specific accuracy
+            preds = preds.cpu()
+            labels = labels.cpu()
+
             # self
-            correct_self += ((preds == labels) & (classes == "self")).sum().item()
-            total_self += (classes == "self").sum().item()
+            correct_self += ((preds == labels) & (classes == 1)).sum().item()
+            total_self += (classes == 1).sum().item()
 
             # non-self
-            correct_nonself += ((preds == labels) & (classes == "non-self")).sum().item()
-            total_nonself += (classes == "non-self").sum().item()
+            correct_nonself += ((preds == labels) & (classes == 2)).sum().item()
+            total_nonself += (classes == 2).sum().item()
 
             # undefined
-            correct_undefined += ((preds == labels) & (classes == "undefined")).sum().item()
-            total_undefined += (classes == "undefined").sum().item()
+            correct_undefined += ((preds == labels) & (classes == 3)).sum().item()
+            total_undefined += (classes == 3).sum().item()
 
             # Collect all preds and labels for confusion matrix
             all_preds.extend(preds.cpu().numpy())
