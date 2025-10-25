@@ -101,8 +101,6 @@ def deleak_by_cdhit(train: pd.DataFrame, test: pd.DataFrame, path: str) -> tuple
     Returns:
         tuple: (train, test) DataFrames after deleaking.
     """
-
-    path = os.path.join(path, 'fasta')
     
     print("Removing too similar sequences determined by CD-HIT-2D!")
     print(f"Using CD-HIT-2D results from {path} \n")
@@ -154,53 +152,6 @@ def remove_similar_sequences(df: pd.DataFrame, df_split: str, other_split: str, 
     df = df[df['receptor_seq'].isin(allowed_seqs) & df['ligand_seq'].isin(allowed_seqs)]
 
     return df
-
-
-def helper_create_fasta_file(df: pd.DataFrame, path: str) -> None:
-    """
-    Create and save FASTA files for the train, val, and test splits.
-
-    Args:
-        train (pd.DataFrame): Training split DataFrame.
-        val (pd.DataFrame): Validation split DataFrame.
-        test (pd.DataFrame): Test split DataFrame.
-        path (str): Master path for datasets.
-
-    Returns:
-        None
-    """    
-
-    print("Fasta files for the splits train, val & test are created...")
-    create_fasta_file(df[df['split'] == 'train'], path, 'train')
-    create_fasta_file(df[df['split'] == 'val'],   path, 'val')
-    create_fasta_file(df[df['split'] == 'test'],  path, 'test')
-    print("Fasta files created succesfully, finish execution! \n")
-
-    # creation of fasta files is a exclusive job
-    sys.exit()
-
-def create_fasta_file(df: pd.DataFrame, split: str, path: str) -> None:
-    """
-    Create a FASTA file for a given split, containing all unique receptor and ligand sequences.
-
-    Args:
-        df (pd.DataFrame): DataFrame for the split.
-        split (str): Name of the split (e.g., 'train', 'val', 'test').
-        path (str): Directory to save the FASTA file.
-
-    Returns:
-        None
-    """
-
-    path = os.path.join(path, 'fasta')
-    os.makedirs(path, exist_ok=True) # Create directory if it doesn't exist
-    path = os.path.join(path, f"{split}.fasta")
-    all_seqs = list(df['receptor_seq']) + list(df['ligand_seq'])
-    all_seqs_unique = set(all_seqs)
-
-    with open(path, 'w') as f:
-        for i, seq in enumerate(all_seqs_unique):
-            f.write(f">{f"{i}_{split}"}\n{seq}\n")
 
 def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = True, self_interactions: bool = False) -> pd.DataFrame:
     """
@@ -380,81 +331,84 @@ def deleak_by_uniprot(df: pd.DataFrame) -> pd.DataFrame:
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Create positive and negative datasets by split")
-    parser.add_argument('--train_lim', type=int, default=None, required=False, help='Upper limit for training set size')
-    parser.add_argument('--deleak_uniprot', action='store_true', required=False, help='Deleak the dataset by removing duplicates across splits')
-    parser.add_argument('--path', type=str, default=None, required=True, help='Base path for datasets')
+    parser.add_argument('--out_path', type=str, default=None, required=True, help='Output path for dataset splits')
 
-    # Add mutually exclusive arguments for fasta creation and deleaking
-    group = parser.add_mutually_exclusive_group(required=False)
-    group.add_argument('--create_fasta', action='store_true', help='Create and save a FASTA file of the splits')
+    parser.add_argument('--exist_path', type=str, default=None, required=False, help='Path to existing dataset splits to load from')
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('--deleak_uniprot', action='store_true', help='Deleak with by uniprot ids')
     group.add_argument('--deleak_cdhit', action='store_true', help='Deleak with by cd-hit-2d created fasta files')
+    parser.add_argument('--fasta_splits_path', type=str, help='Path to fasta files for cd-hit-2d deleaking')
+
+    parser.add_argument('--self_interactions', action='store_true', help='Consider self-interactions when sampling negatives')
 
     args = parser.parse_args()
-
-    # Check if Pinder data without uniprot deleak is already saved as .csv file
-    print("######### Loading Pinder dataset #########\n")
-
-    # Somehow some pdbs are not existent and want to be downloaded which results in error since pdb path is not writable
-    # -> commented next block to immediatly take uniprot deleaked data
-
-    index = pd.DataFrame()
-
-    # Load save point if exists
-    # if os.path.exists(os.path.join(args.path, 'raw', 'all_positives.csv')):
-    #     index = pd.read_csv(os.path.join(args.path, 'raw', 'all_positives.csv'))
-    #     print("Using existing Pinder dataframe without uniprot deleaking from CSV.")
-    # else:
-    #     # Test pinder location
-    #     print(f"pinder location: {get_pinder_location()}")
-    # 
-    #     # Get the index of Pinder systems
-    #     index = get_index().copy()
-    # 
-    #     index = remove_redundant_entries(index)
-    # 
-    #     # extract info for all entries
-    #     index = extract_info(index)
-    # 
-    #     # save index as a CSV in /path/raw/
-    #     raw_path = os.path.join(args.path, 'raw')
-    #     os.makedirs(raw_path, exist_ok=True)
-    #     index.to_csv(os.path.join(raw_path, 'all_positives.csv'), index=False)
     
-    # create fasta files
-    # if args.create_fasta:
-    #     helper_create_fasta_file(index, args.path)
+    if (args.deleak_uniprot or args.deleak_cdhit) and not args.exist_path:
+        parser.error("Deleaking requires an existing dataset path to load from. Please provide --exist_path.")
+    
+    if args.deleak_cdhit and not args.fasta_splits_path:
+        parser.error("CD-HIT deleaking requires a path to fasta files. Please provide --fasta_splits_path.")
 
-    # if requested, deleak the dataset by uniprot ids, use already saved .csv-file if possible
-    if args.deleak_uniprot:
-        print("######### Deleaking dataset by Uniprot IDs #########\n")
-
-        # Load save point with deleaking if exists
-        if os.path.exists(os.path.join(args.path, 'deleak_uniprot', 'raw', 'all_positives.csv')):
-            index = pd.read_csv(os.path.join(args.path, 'deleak_uniprot', 'raw', 'all_positives.csv'))
-            print("Using existing uniprot deleaked Pinder dataframe from CSV. \n")
+    # Load save point if exist_path is given
+    if args.exist_path:
+        try:
+            train = pd.read_csv(os.path.join(args.exist_path, "train.csv"))
+            val   = pd.read_csv(os.path.join(args.exist_path, "val.csv"))
+            test  = pd.read_csv(os.path.join(args.exist_path, "test.csv"))
+        except FileNotFoundError:
+            print(f"Error: Could not find dataset splits in the provided exist_path: {args.exist_path}")
+            sys.exit(1)
         else:
-            print("Deleaking dataset... \n")
+            print(f"Using existing Pinder dataset splits from {args.exist_path} \n")
+
+        # consider only positives for deleaking
+        train = train[train["label"] == 1]
+        val   = val[val["label"] == 1]
+        test  = test[test["label"] == 1]
+
+        # only 1 index dataframe used for deleaking
+        index = pd.concat([train, val, test], ignore_index=True)
+
+        if args.deleak_uniprot:
+            print("######### Deleaking dataset by Uniprot IDs #########\n")
             index = deleak_by_uniprot(index)
 
-            # save deleaked index as a CSV in /path/deleak_uniprot/
-            deleak_path = os.path.join(args.path, 'deleak_uniprot', 'raw')
-            os.makedirs(deleak_path, exist_ok=True)
-            index.to_csv(os.path.join(deleak_path, 'all_positives.csv'), index=False)
+            # split back into train, val, test
+            train = index[index["split"] == "train"]
+            val = index[index["split"] == "val"]
+            test = index[index["split"] == "test"]
+        
+        if args.deleak_cdhit:
+            print("######### Deleaking dataset by CD-HIT #########\n")
+            train, test = deleak_by_cdhit(train, test, args.fasta_splits_path)
 
-    # get different splits
-    train = index[index["split"] == "train"]
-    val = index[index["split"] == "val"]
-    test = index[index["split"] == "test"]
+    # If no exist_path is given, create dataset from scratch
+    else:
+        print("######### Create Pinder dataset splits from scratch #########\n")
 
-    # deleak with result of cd-hit-2d
-    if args.deleak_cdhit:
-        print("######### Deleaking dataset by CD-HIT #########\n")
-        train, test = deleak_by_cdhit(train, test, args.path)
+        # Test pinder location
+        print(f"pinder location: {get_pinder_location()}")
+    
+        # Get the index of Pinder systems
+        index = get_index().copy()
+    
+        index = remove_redundant_entries(index)
+    
+        # extract info for all entries
+        index = extract_info(index)
 
-    # limit train to 10k samples, if specified
-    if args.train_lim:
-        print(f"Limiting positive training set to {args.train_lim} samples.\n")
-        train = train[:args.train_lim]
+        # split into train, val, test
+        train = index[index["split"] == "train"]
+        val   = index[index["split"] == "val"]
+        test  = index[index["split"] == "test"]
+    
+    # Positives are now ready, sample negatives and save splits
+    print("######### Sample negatives and save dataset splits #########\n")
+
+    # Print sizes of splits
+    print(f"Size of train split: {len(train)}")
+    print(f"Size of val split: {len(val)}")
+    print(f"Size of test split: {len(test)}\n")
 
     # Sample negatives for each split
     neg_train = sample_negatives(train, "train", len(train))
@@ -462,66 +416,16 @@ if __name__ == "__main__":
     neg_test  = sample_negatives(test, "test", len(test))
 
     # Concatenate positive and negative samples
-    train_dataset = pd.concat([train, neg_train], ignore_index=True)
-    val_dataset   = pd.concat([val, neg_val], ignore_index=True)
-    test_dataset  = pd.concat([test, neg_test], ignore_index=True)
+    train = pd.concat([train, neg_train], ignore_index=True)
+    val   = pd.concat([val,   neg_val],   ignore_index=True)
+    test  = pd.concat([test,  neg_test],  ignore_index=True)
 
     # Save splits
     print("######### Save dataset splits #########\n")
-    if not args.deleak_uniprot and not args.deleak_cdhit:
-        if not args.train_lim:
-            print(f"Save dataset splits to {args.path}")
-            train_dataset.to_csv(os.path.join(args.path, 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, 'test.csv'), index=False)
-        else:
-            print(f"Save limited dataset splits to {os.path.join(args.path, f'train_{args.train_lim}')}")
-            os.makedirs(os.path.join(args.path, f'train_pos_lim_{args.train_lim}'), exist_ok=True)
-            train_dataset.to_csv(os.path.join(args.path, f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
-
-    elif args.deleak_uniprot and not args.deleak_cdhit:
-        if not args.train_lim:
-            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_uniprot')}")
-            os.makedirs(os.path.join(args.path, 'deleak_uniprot'), exist_ok=True)
-            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'test.csv'), index=False)
-        else:
-            print(f"Save limited dataset splits to {os.path.join(args.path, f'deleak_uniprot', f'train_{args.train_lim}')}")
-            os.makedirs(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}'), exist_ok=True)
-            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
-
-    elif args.deleak_uniprot and args.deleak_cdhit:
-        if not args.train_lim:
-            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit')}")
-            os.makedirs(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit'), exist_ok=True)
-            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', 'test.csv'), index=False)
-        else:
-            print(f"Save limited dataset splits to {os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_{args.train_lim}')}")
-            os.makedirs(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}'), exist_ok=True)
-            train_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, 'deleak_uniprot', 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
-
-    elif not args.deleak_uniprot and args.deleak_cdhit:
-        if not args.train_lim:
-            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_cdhit')}")
-            os.makedirs(os.path.join(args.path, 'deleak_cdhit'), exist_ok=True)
-            train_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', 'test.csv'), index=False)
-        else:
-            print(f"Save dataset splits to {os.path.join(args.path, 'deleak_cdhit')}")
-            os.makedirs(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}'), exist_ok=True)
-            train_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'train.csv'), index=False)
-            val_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'val.csv'), index=False)
-            test_dataset.to_csv(os.path.join(args.path, 'deleak_cdhit', f'train_pos_lim_{args.train_lim}', 'test.csv'), index=False)
+    print(f"Save dataset splits to {args.out_path}")
+    train.to_csv(os.path.join(args.out_path, 'train.csv'), index=False)
+    val.to_csv(os.path.join(args.out_path, 'val.csv'), index=False)
+    test.to_csv(os.path.join(args.out_path, 'test.csv'), index=False)
 
 
 
