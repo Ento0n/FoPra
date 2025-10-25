@@ -276,16 +276,26 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader):
         print(f"Validation accuracy: {correct/total*100:.2f}%, Validation loss: {avg_val_loss:.4f}")
         # log validation metrics to wandb
         run.log({"val_accuracy": correct/total, "val_loss": avg_val_loss}, step=i)
+    
+    # new line after training
+    print("\n")
+
 
 def test(device, model, test_loader):
     # 5. Test the model
     model.eval()
     correct, total = 0, 0
+    neg, pos = 0, 0
     correct_self, total_self = 0, 0
+    self_preds, self_labels = [], []
+    self_neg, self_pos = 0, 0
     correct_nonself, total_nonself = 0, 0
+    nonself_preds, nonself_labels = [], []
+    nonself_neg, nonself_pos = 0, 0
     correct_undefined, total_undefined = 0, 0
-    all_preds = []
-    all_labels = []
+    undefined_preds, undefined_labels = [], []
+    undefined_neg, undefined_pos = 0, 0
+    all_preds, all_labels = [], []
     with torch.no_grad():
         for rec_emb, lig_emb, labels, classes in test_loader:
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
@@ -301,6 +311,8 @@ def test(device, model, test_loader):
             # general
             correct += (preds == labels).sum().item()
             total += labels.size(0)
+            neg += (labels == 0).sum().item()
+            pos += (labels == 1).sum().item()
 
             # move pred and labels to cpu for class-specific accuracy
             preds = preds.cpu()
@@ -309,28 +321,46 @@ def test(device, model, test_loader):
             # self
             correct_self += ((preds == labels) & (classes == 1)).sum().item()
             total_self += (classes == 1).sum().item()
+            self_preds.extend(preds[classes == 1].cpu().numpy())
+            self_labels.extend(labels[classes == 1].cpu().numpy())
+            self_neg += (labels[classes == 1] == 0).sum().item()
+            self_pos += (labels[classes == 1] == 1).sum().item()
 
             # non-self
             correct_nonself += ((preds == labels) & (classes == 2)).sum().item()
             total_nonself += (classes == 2).sum().item()
+            nonself_preds.extend(preds[classes == 2].cpu().numpy())
+            nonself_labels.extend(labels[classes == 2].cpu().numpy())
+            nonself_neg += (labels[classes == 2] == 0).sum().item()
+            nonself_pos += (labels[classes == 2] == 1).sum().item()
 
             # undefined
             correct_undefined += ((preds == labels) & (classes == 3)).sum().item()
             total_undefined += (classes == 3).sum().item()
+            undefined_preds.extend(preds[classes == 3].cpu().numpy())
+            undefined_labels.extend(labels[classes == 3].cpu().numpy())
+            undefined_neg += (labels[classes == 3] == 0).sum().item()
+            undefined_pos += (labels[classes == 3] == 1).sum().item()
 
             # Collect all preds and labels for confusion matrix
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
 
-    print(f"General test accuracy: {correct/total*100:.2f}%\n")
-
-    print(f"Self-interaction test accuracy: {correct_self/total_self*100:.2f}% ({total_self} samples)\n")
-
-    print(f"Non-self-interaction test accuracy: {correct_nonself/total_nonself*100:.2f}% ({total_nonself} samples)\n")
-
-    print(f"Undefined class test accuracy: {correct_undefined/total_undefined*100:.2f}% ({total_undefined} samples)\n")
-
+    print(f"General test accuracy: {correct/total*100:.2f}%")
+    print(f"Total negative samples: {neg}, Total positive samples: {pos}")
     print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}\n")
+
+    print(f"Self-interaction test accuracy: {correct_self/total_self*100:.2f}% ({total_self} samples)")
+    print(f"Self negative samples: {self_neg}, Self positive samples: {self_pos}")
+    print(f"Confusion Matrix:\n{confusion_matrix(self_labels, self_preds, labels=[0,1])}\n")
+
+    print(f"Non-self-interaction test accuracy: {correct_nonself/total_nonself*100:.2f}% ({total_nonself} samples)")
+    print(f"Non-self negative samples: {nonself_neg}, Non-self positive samples: {nonself_pos}")
+    print(f"Confusion Matrix:\n{confusion_matrix(nonself_labels, nonself_preds, labels=[0,1])}\n")
+
+    print(f"Undefined class test accuracy: {correct_undefined/total_undefined*100:.2f}% ({total_undefined} samples)")
+    print(f"Undefined negative samples: {undefined_neg}, Undefined positive samples: {undefined_pos}")
+    print(f"Confusion Matrix:\n{confusion_matrix(undefined_labels, undefined_preds, labels=[0,1])}\n")
 
     return all_preds, all_labels
 
