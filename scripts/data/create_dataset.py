@@ -192,12 +192,13 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
         self_interacting_seqs = set(self_interacting_df['receptor_seq'])
         rec_seqs_non_self = [s for s in rec_seqs if s not in self_interacting_seqs]
         lig_seqs_non_self = [s for s in lig_seqs if s not in self_interacting_seqs]
-        seqs_non_self = rec_seqs_non_self + lig_seqs_non_self
+        seqs_non_self = set(rec_seqs_non_self + lig_seqs_non_self)
 
         if n_self_interactions < len(seqs_non_self):
             seqs_non_self = seqs_non_self[:n_self_interactions]
         
         print(f"Adding {len(seqs_non_self)} self-interactions as negatives in split {split}.")
+        print(f"# of unique sequences in positive self interactions: {len(self_interacting_seqs)}")
         print(f"# of self interactions in positives: {n_self_interactions}\n")
         
         for seq in seqs_non_self:

@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import random
 
 from create_dataset import sample_negatives, remove_similar_sequences
 
@@ -45,7 +46,7 @@ def create_full_uniprot_seq_splits():
     val_df = val_df[val_df["label"] == 1]
     test_df = test_df[test_df["label"] == 1]
 
-    uniprot_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id"
+    uniprot_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences"
 
     full_fasta = os.path.join(uniprot_path, "full_uniprot_sequences.fasta")
 
@@ -83,9 +84,9 @@ def create_full_uniprot_seq_splits():
     test_df = test_df[(test_df["receptor_seq"].str.len() <= 2500) & (test_df["ligand_seq"].str.len() <= 2500)]
     print(f"After filtering, train has {len(train_df)} entries, val has {len(val_df)} entries, test has {len(test_df)} entries.\n")
 
-    train_neg = sample_negatives(train_df, split="train", n_samples=len(train_df), self_interactions=True)
-    val_neg = sample_negatives(val_df, split="val", n_samples=len(val_df), self_interactions=True)
-    test_neg = sample_negatives(test_df, split="test", n_samples=len(test_df), self_interactions=True)
+    train_neg = sample_negatives(train_df, split="train", n_samples=len(train_df))
+    val_neg = sample_negatives(val_df, split="val", n_samples=len(val_df))
+    test_neg = sample_negatives(test_df, split="test", n_samples=len(test_df))
 
     train_df = pd.concat([train_df, train_neg], ignore_index=True)
     val_df = pd.concat([val_df, val_neg], ignore_index=True)
@@ -184,15 +185,73 @@ def deleak_uniprot_seq_splits():
     val.to_csv(os.path.join(path, "deleak_cd_hit", "val.csv"), index=False)
     test.to_csv(os.path.join(path, "deleak_cd_hit", "test.csv"), index=False)
 
+def completely_balanced_splits():
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences/half_balanced"
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val = pd.read_csv(os.path.join(path, "val.csv"))
+    test = pd.read_csv(os.path.join(path, "test.csv"))
+
+    # consider only positive samples for deleaking
+    val = val[val["label"] == 1]
+    test = test[test["label"] == 1]
+
+    # val and test should have as many self interacting in positive as in negative -> remove from positive set
+    val_self = val[val["receptor_seq"] == val["ligand_seq"]]
+    val_nonself = val[val["receptor_seq"] != val["ligand_seq"]]
+    val_self_seqs_uniq = set(val_self["receptor_seq"].unique())
+    val_nonself_seqs_uniq = set(list(val_nonself["receptor_seq"].unique()) + list(val_nonself["ligand_seq"].unique()))
+
+    print(f"Val has {len(val_self_seqs_uniq)} self interacting sequences and {len(val_nonself_seqs_uniq)} non-self interacting sequences.")
+    if len(val_self_seqs_uniq) > len(val_nonself_seqs_uniq):
+        #sample len(nonself_seqs_uniq) self interacting sequences
+        sampled_seqs = random.sample(list(val_self_seqs_uniq), k=len(val_nonself_seqs_uniq))
+        val_self = val_self[val_self["receptor_seq"].isin(sampled_seqs)]
+        val = pd.concat([val_self, val_nonself], ignore_index=True)
+        print(f"Val should have {len(val_nonself_seqs_uniq)} self interacting sequences to be balanced.")
+        print(f"Now val has {len(val[val['receptor_seq'] == val['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+
+
+    # repeat for test set
+    test_self = test[test["receptor_seq"] == test["ligand_seq"]]
+    test_nonself = test[test["receptor_seq"] != test["ligand_seq"]]
+    test_self_seqs_uniq = set(test_self["receptor_seq"].unique())
+    test_nonself_seqs_uniq = set(list(test_nonself["receptor_seq"].unique()) + list(test_nonself["ligand_seq"].unique()))
+    
+
+    print(f"Test has {len(test_self_seqs_uniq)} self interacting sequences and {len(test_nonself_seqs_uniq)} non-self interacting sequences.")
+    if len(test_self_seqs_uniq) > len(test_nonself_seqs_uniq):
+        #sample len(nonself_seqs_uniq) self interacting sequences
+        sampled_seqs = random.sample(list(test_self_seqs_uniq), k=len(test_nonself_seqs_uniq))
+        test_self = test_self[test_self["receptor_seq"].isin(sampled_seqs)]
+        test = pd.concat([test_self, test_nonself], ignore_index=True)
+        print(f"Test should have {len(test_nonself_seqs_uniq)} self interacting sequences to be balanced.")
+        print(f"Now test has {len(test[test['receptor_seq'] == test['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+
+    # new line for nicer stdout
+    print("\n")
+
+    # sample negatives for val and test
+    neg_val = sample_negatives(val, split="val", n_samples=len(val), self_interactions=True)
+    neg_test = sample_negatives(test, split="test", n_samples=len(test), self_interactions=True)
+
+    val = pd.concat([val, neg_val], ignore_index=True)
+    test = pd.concat([test, neg_test], ignore_index=True)
+
+    # save splits
+    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences/completely_balanced"
+    train.to_csv(os.path.join(out_path, "train.csv"), index=False)
+    val.to_csv(os.path.join(out_path, "val.csv"), index=False)
+    test.to_csv(os.path.join(out_path, "test.csv"), index=False)
+    
+
 
 if __name__ == "__main__":
-    # create full uniprot sequence splits
     # create_full_uniprot_seq_splits()
 
-    # add sequences from uniparc to fasta
     # add_sequences_from_uniparc()
 
-    # generate fasta splits
     # generate_fasta_splits()
 
-    deleak_uniprot_seq_splits()
+    # deleak_uniprot_seq_splits()
+
+    completely_balanced_splits()
