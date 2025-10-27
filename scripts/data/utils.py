@@ -2,6 +2,8 @@ import pandas as pd
 import os
 import argparse
 
+from create_dataset import sample_negatives
+
 def add_labels():
     identity_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test_with_identities_raw.csv"
     origin_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test.csv"
@@ -22,8 +24,13 @@ def add_labels():
     
     origin_df.to_csv(os.path.join("/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit", "test_with_identities.csv"), index=False)
 
-def add_test_classes(path: str):
-    test_df = pd.read_csv(os.path.join(path, "test.csv"))
+def add_test_classes(path: str = None, df: pd.DataFrame = None) -> None:
+    if df is None and path is None:
+        raise ValueError("Either 'df' or 'path' must be provided.")
+    elif path:
+        test_df = pd.read_csv(os.path.join(path, "test.csv"))
+    elif df:
+        test_df = df
 
     # add self-interaction class
     test_df["class"] = test_df.apply(lambda row: "self" if row["receptor_seq"] == row["ligand_seq"] else "non-self", axis=1)
@@ -42,7 +49,11 @@ def add_test_classes(path: str):
     test_df["class"] = test_df.apply(lambda row: "undefined" if seq_to_uniprot[row["receptor_seq"]] == "UNDEFINED" or seq_to_uniprot[row["ligand_seq"]] == "UNDEFINED" else row["class"], axis=1)
 
     # save updated test_df
-    test_df.to_csv(os.path.join(path, "test.csv"), index=False)
+    if path:
+        test_df.to_csv(os.path.join(path, "test.csv"), index=False)
+        return None
+    else:
+        return test_df
 
 def helper_create_fasta_file(path: str, out_path: str) -> None:
     """
@@ -87,6 +98,41 @@ def create_fasta_file(df: pd.DataFrame, split: str, out_path: str) -> None:
         for i, seq in enumerate(all_seqs_unique):
             f.write(f">{f"{i}_{split}"}\n{seq}\n")
 
+def remove_duplicate_interactions(df: pd.DataFrame, split: str) -> pd.DataFrame:
+    print(f"Removing duplicate interactions in {split} set, size before: {len(df)}")
+    df = df.drop_duplicates(subset=['receptor_seq', 'ligand_seq'])
+    df = df.drop_duplicates(subset=['ligand_seq', 'receptor_seq'])
+    print(f"Size after: {len(df)}\n")
+    return df
+
+def helper_remove_duplicate_interactions(path: str, out_path: str):
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val = pd.read_csv(os.path.join(path, "val.csv"))
+    test = pd.read_csv(os.path.join(path, "test.csv"))
+
+    train = train[train["label"] == 1]
+    val = val[val["label"] == 1]
+    test = test[test["label"] == 1]
+
+    train = remove_duplicate_interactions(train, "train")
+    val = remove_duplicate_interactions(val, "val")
+    test = remove_duplicate_interactions(test, "test")
+
+    train_neg = sample_negatives(train, "train", len(train))
+    val_neg = sample_negatives(val, "val", len(val))
+    test_neg = sample_negatives(test, "test", len(test))
+
+    train = pd.concat([train, train_neg], ignore_index=True)
+    val = pd.concat([val, val_neg], ignore_index=True)
+    test = pd.concat([test, test_neg], ignore_index=True)
+
+    # add test classes right away
+    test = add_test_classes(df=test)
+
+    train.to_csv(os.path.join(out_path, "train.csv"), index=False)
+    val.to_csv(os.path.join(out_path, "val.csv"), index=False)
+    test.to_csv(os.path.join(out_path, "test.csv"), index=False)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="different utilities for data processing")
     parser.add_argument('--function', type=int, required=True, help='Function to execute: 1 - add labels, 2 - add test classes, 3 - create fasta files')
@@ -100,3 +146,5 @@ if __name__ == "__main__":
         add_test_classes(args.path)
     elif args.function == 3:
         helper_create_fasta_file(args.path, args.out_path)
+    elif args.function == 4:
+        helper_remove_duplicate_interactions(args.path, args.out_path)
