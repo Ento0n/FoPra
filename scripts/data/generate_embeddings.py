@@ -19,13 +19,8 @@ os.environ['TRANSFORMERS_CACHE'] = '/nfs/scratch/pinder/negative_dataset/cache/h
 # 2. Function to save per-sequence embeddings
 def save_seq_embeddings(seqs, residue, out_dir):
     os.makedirs(out_dir, exist_ok=True)
-    
-    max_seq_len = 0
-    for seq in tqdm(seqs):
-        # update max sequence length
-        max_seq_len = max(max_seq_len, len(seq))
-        print(f"Max sequence length: {max_seq_len}")
 
+    for seq in seqs:
         # generate ESM protein object
         prot = ESMProtein(sequence=seq)
 
@@ -63,12 +58,94 @@ def save_seq_embeddings(seqs, residue, out_dir):
         del prot, protein_tensor, result
         gc.collect() # delete cache
 
+def save_structure_embeddings(df, residue, out_dir):
+    for _, row in df.iterrows():
+        # generate ESM protein object
+        rec_chain = row["entry"].split("--")[0].split("_")[-2]
+        lig_chain = row["entry"].split("--")[1].split("_")[-2]
+
+        # print(f"Processing entry {row['entry']} with receptor chain {rec_chain} and ligand chain {lig_chain}")
+        # chain extraction works!
+
+        rec_prot = ESMProtein.from_pdb(row['receptor_path'], chain_id="detect")
+        lig_prot = ESMProtein.from_pdb(row['ligand_path'], chain_id="detect")
+
+        if rec_prot.coordinates is None or lig_prot.coordinates is None:
+            print(f"Skipping entry {row['entry']} due to missing coordinates.")
+            continue
+
+        # Check if the residues are more than 2
+        if len(rec_prot.sequence) <= 2 or len(lig_prot.sequence) <= 2:
+            print(f"Skipping entry {row['entry']} due to insufficient residues.")
+            continue
+
+        # skip already‐saved ones
+        rec_key = hashlib.md5(rec_prot.sequence.encode()).hexdigest()
+        lig_key = hashlib.md5(lig_prot.sequence.encode()).hexdigest()
+        rec_path = os.path.join(out_dir, f"{rec_key}.pt")
+        lig_path = os.path.join(out_dir, f"{lig_key}.pt")
+        lig_exists = os.path.exists(lig_path)
+        rec_exists = os.path.exists(rec_path)
+        if rec_exists and lig_exists:
+            continue
+
+        # encode each sequence individually
+        with torch.no_grad():
+            if not rec_exists:
+                rec_tensor = client.encode(rec_prot)
+                if residue:
+                    rec_result = client.forward_and_sample(
+                        rec_tensor,
+                        SamplingConfig(
+                            return_per_residue_embeddings=True,
+                            return_mean_embedding=False,
+                        ),
+                    ).per_residue_embedding
+                else:
+                    rec_result = client.forward_and_sample(
+                        rec_tensor,
+                        SamplingConfig(
+                            return_per_residue_embeddings=False,
+                            return_mean_embedding=True,
+                        ),
+                    ).mean_embedding
+
+            if not lig_exists:
+                lig_tensor = client.encode(lig_prot)
+                if residue:
+                    lig_result = client.forward_and_sample(
+                        lig_tensor,
+                        SamplingConfig(
+                            return_per_residue_embeddings=True,
+                            return_mean_embedding=False,
+                        ),
+                    ).per_residue_embedding
+                else:
+                    lig_result = client.forward_and_sample(
+                        lig_tensor,
+                        SamplingConfig(
+                            return_per_residue_embeddings=False,
+                            return_mean_embedding=True,
+                        ),
+                    ).mean_embedding
+        
+        # save each
+        if not rec_exists:
+            torch.save({"sequence": rec_prot.sequence, "embedding": rec_result.cpu()},
+                    os.path.join(out_dir, f"{rec_key}.pt"))
+        if not lig_exists:
+            torch.save({"sequence": lig_prot.sequence, "embedding": lig_result.cpu()},
+                    os.path.join(out_dir, f"{lig_key}.pt"))
+
 
 if __name__ == "__main__":
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Generate Embeddings for Protein information")
     parser.add_argument('--token', type=str, default=None, required=True, help='Token for huggingface login')
+    parser.add_argument('--residue', action='store_true', help='Whether to generate per-residue embeddings (default is mean embeddings)')
     parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
+    parser.add_argument('--out_path', type=str, default=None, required=True, help='Output path to save embeddings')
+    parser.add_argument('--structure', action='store_true', help='Whether to generate structure-based embeddings instead of sequence-based')
 
     args = parser.parse_args()
 
@@ -76,9 +153,6 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     login(token=args.token)
     client = ESM3.from_pretrained(ESM3_OPEN_SMALL, device=device)
-
-    # whether to save residue‐level embeddings or mean embeddings
-    residue = False
 
     # 3. Generate embeddings for receptor and ligand sequences
     print(f"Loading dataset from {args.path}...\n")
@@ -88,26 +162,29 @@ if __name__ == "__main__":
         pd.read_csv(os.path.join(args.path, "test.csv"))
     ], ignore_index=True)
 
-    # Only consider sequences where label==1
-    unique_rec = df['receptor_seq'].unique()
-    unique_lig = df['ligand_seq'].unique()
-
-    if residue:
-        out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/residue"
+    if args.structure:
+        print(f"Saving structure&sequence-based embeddings to {args.out_path}...\n")
+        save_structure_embeddings(
+            df,
+            args.residue,
+            args.out_path
+        )
     else:
-        out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/mean"
-    
-    print(f"Saving embeddings to {out_path}...\n")
+        # Only consider sequences where label==1
+        unique_rec = df['receptor_seq'].unique()
+        unique_lig = df['ligand_seq'].unique()
 
-    print("Generating embeddings for receptor sequences...\n")
-    save_seq_embeddings(
-        unique_rec,
-        residue,
-        out_path
-    )
-    print("Generating embeddings for ligand sequences...\n")
-    save_seq_embeddings(
-        unique_lig,
-        residue,
-        out_path
-    )
+        print(f"Saving sequence embeddings to {args.out_path}...\n")
+
+        print("Generating embeddings for receptor sequences...\n")
+        save_seq_embeddings(
+            unique_rec,
+            args.residue,
+            args.out_path
+        )
+        print("Generating embeddings for ligand sequences...\n")
+        save_seq_embeddings(
+            unique_lig,
+            args.residue,
+            args.out_path
+        )

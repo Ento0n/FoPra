@@ -150,7 +150,7 @@ def generate_fasta_splits():
             f.write(f">{i}_test\n{seq}\n")
 
 def deleak_uniprot_seq_splits():
-    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id"
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences"
     train = pd.read_csv(os.path.join(path, "train.csv"))
     val = pd.read_csv(os.path.join(path, "val.csv"))
     test = pd.read_csv(os.path.join(path, "test.csv"))
@@ -165,7 +165,7 @@ def deleak_uniprot_seq_splits():
 
     print(f"(POSITIVES) Before deleaking, train has {len(train)} entries, val has {len(val)} entries, test has {len(test)} entries.\n")
 
-    cd_hit_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id/cd_hit"
+    cd_hit_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences/cd_hit"
     train = remove_similar_sequences(train, "train", "val", cd_hit_path)
     train = remove_similar_sequences(train, "train", "test", cd_hit_path)
     test = remove_similar_sequences(test, "test", "val", cd_hit_path)
@@ -173,20 +173,21 @@ def deleak_uniprot_seq_splits():
     print(f"(POSITIVES) After deleaking, train has {len(train)} entries, val has {len(val)} entries, test has {len(test)} entries.\n")
 
     # sample negatives after deleaking
-    neg_train = sample_negatives(train, split="train", n_samples=len(train), self_interactions=True)
-    neg_val = sample_negatives(val, split="val", n_samples=len(val), self_interactions=True)
-    neg_test = sample_negatives(test, split="test", n_samples=len(test), self_interactions=True)
+    neg_train = sample_negatives(train, split="train", n_samples=len(train))
+    neg_val = sample_negatives(val, split="val", n_samples=len(val))
+    neg_test = sample_negatives(test, split="test", n_samples=len(test))
 
     train = pd.concat([train, neg_train], ignore_index=True)
     val = pd.concat([val, neg_val], ignore_index=True)
     test = pd.concat([test, neg_test], ignore_index=True)
 
-    train.to_csv(os.path.join(path, "deleak_cd_hit", "train.csv"), index=False)
-    val.to_csv(os.path.join(path, "deleak_cd_hit", "val.csv"), index=False)
-    test.to_csv(os.path.join(path, "deleak_cd_hit", "test.csv"), index=False)
+    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences/deleak_cd_hit"
+    train.to_csv(os.path.join(out_path, "train.csv"), index=False)
+    val.to_csv(os.path.join(out_path, "val.csv"), index=False)
+    test.to_csv(os.path.join(out_path, "test.csv"), index=False)
 
 def completely_balanced_splits():
-    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences/half_balanced"
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/direct_deleak_cdhit"
     train = pd.read_csv(os.path.join(path, "train.csv"))
     val = pd.read_csv(os.path.join(path, "val.csv"))
     test = pd.read_csv(os.path.join(path, "test.csv"))
@@ -194,6 +195,7 @@ def completely_balanced_splits():
     # consider only positive samples for deleaking
     val = val[val["label"] == 1]
     test = test[test["label"] == 1]
+    train = train[train["label"] == 1]
 
     # val and test should have as many self interacting in positive as in negative -> remove from positive set
     val_self = val[val["receptor_seq"] == val["ligand_seq"]]
@@ -233,12 +235,14 @@ def completely_balanced_splits():
     # sample negatives for val and test
     neg_val = sample_negatives(val, split="val", n_samples=len(val), self_interactions=True)
     neg_test = sample_negatives(test, split="test", n_samples=len(test), self_interactions=True)
+    neg_train = sample_negatives(train, split="train", n_samples=len(train), self_interactions=True)
 
     val = pd.concat([val, neg_val], ignore_index=True)
     test = pd.concat([test, neg_test], ignore_index=True)
+    train = pd.concat([train, neg_train], ignore_index=True)
 
     # save splits
-    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/full_uniprot_sequences/completely_balanced"
+    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/direct_deleak_cdhit/fully_balanced"
     train.to_csv(os.path.join(out_path, "train.csv"), index=False)
     val.to_csv(os.path.join(out_path, "val.csv"), index=False)
     test.to_csv(os.path.join(out_path, "test.csv"), index=False)

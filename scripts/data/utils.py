@@ -27,10 +27,12 @@ def add_labels():
 def add_test_classes(path: str = None, df: pd.DataFrame = None) -> None:
     if df is None and path is None:
         raise ValueError("Either 'df' or 'path' must be provided.")
-    elif path:
+    elif path is not None:
         test_df = pd.read_csv(os.path.join(path, "test.csv"))
-    elif df:
+    elif df is not None:
         test_df = df
+    else:
+        raise ValueError("Unexpected error in input parameters.")
 
     # add self-interaction class
     test_df["class"] = test_df.apply(lambda row: "self" if row["receptor_seq"] == row["ligand_seq"] else "non-self", axis=1)
@@ -49,7 +51,7 @@ def add_test_classes(path: str = None, df: pd.DataFrame = None) -> None:
     test_df["class"] = test_df.apply(lambda row: "undefined" if seq_to_uniprot[row["receptor_seq"]] == "UNDEFINED" or seq_to_uniprot[row["ligand_seq"]] == "UNDEFINED" else row["class"], axis=1)
 
     # save updated test_df
-    if path:
+    if path is not None:
         test_df.to_csv(os.path.join(path, "test.csv"), index=False)
         return None
     else:
