@@ -187,17 +187,33 @@ def deleak_uniprot_seq_splits():
     test.to_csv(os.path.join(out_path, "test.csv"), index=False)
 
 def completely_balanced_splits():
-    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/direct_deleak_cdhit"
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/direct_deleak_cdhit/no_duplicates"
     train = pd.read_csv(os.path.join(path, "train.csv"))
     val = pd.read_csv(os.path.join(path, "val.csv"))
     test = pd.read_csv(os.path.join(path, "test.csv"))
 
+    print(f"Creating completely balanced splits using splits from: {path}\n")
+
     # consider only positive samples for deleaking
+    train = train[train["label"] == 1]
     val = val[val["label"] == 1]
     test = test[test["label"] == 1]
-    train = train[train["label"] == 1]
 
-    # val and test should have as many self interacting in positive as in negative -> remove from positive set
+    # train, val and test should have as many self interacting in positive as in negative -> remove from positive set
+    train_self = train[train["receptor_seq"] == train["ligand_seq"]]
+    train_nonself = train[train["receptor_seq"] != train["ligand_seq"]]
+    train_self_seqs_uniq = set(train_self["receptor_seq"].unique())
+    train_nonself_seqs_uniq = set(list(train_nonself["receptor_seq"].unique()) + list(train_nonself["ligand_seq"].unique()))
+    print(f"Train has {len(train_self_seqs_uniq)} self interacting sequences and {len(train_nonself_seqs_uniq)} non-self interacting sequences.")
+    if len(train_self_seqs_uniq) > len(train_nonself_seqs_uniq):
+        #sample len(nonself_seqs_uniq) self interacting sequences
+        sampled_seqs = random.sample(list(train_self_seqs_uniq), k=len(train_nonself_seqs_uniq))
+        train_self = train_self[train_self["receptor_seq"].isin(sampled_seqs)]
+        train = pd.concat([train_self, train_nonself], ignore_index=True)
+        print(f"Train should have {len(train_nonself_seqs_uniq)} self interacting sequences to be balanced.")
+        print(f"Now train has {len(train[train['receptor_seq'] == train['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+
+    # repeat for val set
     val_self = val[val["receptor_seq"] == val["ligand_seq"]]
     val_nonself = val[val["receptor_seq"] != val["ligand_seq"]]
     val_self_seqs_uniq = set(val_self["receptor_seq"].unique())
@@ -242,7 +258,7 @@ def completely_balanced_splits():
     train = pd.concat([train, neg_train], ignore_index=True)
 
     # save splits
-    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/direct_deleak_cdhit/fully_balanced"
+    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/direct_deleak_cdhit/no_duplicates/fully_balanced"
     train.to_csv(os.path.join(out_path, "train.csv"), index=False)
     val.to_csv(os.path.join(out_path, "val.csv"), index=False)
     test.to_csv(os.path.join(out_path, "test.csv"), index=False)
