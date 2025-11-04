@@ -10,8 +10,9 @@ from pinder.core import get_pinder_location, get_index, PinderSystem
 import random
 import pandas as pd
 from collections import Counter
-from tqdm import tqdm
 import argparse
+
+from utils import add_test_classes
 
 
 # Remove redundant entries from the dataset
@@ -62,7 +63,7 @@ def extract_info(df:pd.DataFrame) -> pd.DataFrame:
     print("Extracting sequences & paths from Pinder entries... \n")
 
     flag = False
-    for entry in tqdm(df['id']):
+    for entry in df['id']:
 
         ps = PinderSystem(entry)
         if len(ps.holo_receptor.sequence) > 2500 or len(ps.holo_ligand.sequence) > 2500:
@@ -184,15 +185,15 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
 
     # Add as many self interactions as possible (depends on how many sequences are not already self interacting in positives)
     neg_records = []
+    neg_set = set()
     if self_interactions:
         self_interacting_df = df[df['receptor_seq'] == df['ligand_seq']]
         n_self_interactions = len(self_interacting_df)
 
         # sequences not self interacting
         self_interacting_seqs = set(self_interacting_df['receptor_seq'])
-        rec_seqs_non_self = [s for s in rec_seqs if s not in self_interacting_seqs]
-        lig_seqs_non_self = [s for s in lig_seqs if s not in self_interacting_seqs]
-        seqs_non_self = set(rec_seqs_non_self + lig_seqs_non_self)
+        all_seqs = rec_seqs + lig_seqs
+        seqs_non_self = [s for s in all_seqs if s not in self_interacting_seqs]
 
         if n_self_interactions < len(seqs_non_self):
             seqs_non_self = seqs_non_self[:n_self_interactions]
@@ -202,6 +203,18 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
         print(f"# of self interactions in positives: {n_self_interactions}\n")
         
         for seq in seqs_non_self:
+            # extract entry for receptor (since receptor and ligand are the same here only 1 needed)
+            rec_entry_obj = df.loc[df['receptor_seq']==seq, 'entry']
+            lig_entry_obj = df.loc[df['ligand_seq']==seq, 'entry']
+            if not rec_entry_obj.empty:
+                identifier = rec_entry_obj.iat[0].split("--")[0]
+            elif not lig_entry_obj.empty:
+                identifier = lig_entry_obj.iat[0].split("--")[1]
+            else:
+                print(f"Warning: Could not find entry for self-interacting sequence {seq} in split {split}. Using 'unknown_entry' as placeholder.")
+                identifier = "unknown_entry"
+            
+            # create record with paths if available
             if path:
                 rec_path_obj = df.loc[df['receptor_seq']==seq, 'receptor_path']
                 lig_path_obj = df.loc[df['ligand_seq']==seq,   'ligand_path']
@@ -217,6 +230,7 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
                     lig_path = None
                 
                 neg_records.append({
+                    'entry': identifier + '--' + identifier,
                     'split': split,
                     'receptor_seq': seq,
                     'ligand_seq':  seq,
@@ -224,26 +238,49 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
                     'ligand_path':  lig_path,
                     'label': 0
                 })
+
             else:
                 neg_records.append({
+                    'entry': identifier + '--' + identifier,
                     'split': split,
                     'receptor_seq': seq,
                     'ligand_seq':  seq,
                     'label': 0
                 })
 
+            neg_set.add((seq, seq))
 
+            # reduce weights accordingly
+            rec_index = rec_seqs.index(seq)
+            lig_index = lig_seqs.index(seq)
+            rec_weights[rec_index] = max(0, rec_weights[rec_index] - 1)
+            lig_weights[lig_index] = max(0, lig_weights[lig_index] - 1)
+
+    # sample not self interacting until n_samples is reached
     while len(neg_records) < n_samples:
         rec_seq = random.choices(rec_seqs, weights=rec_weights, k=1)[0]
         lig_seq = random.choices(lig_seqs, weights=lig_weights, k=1)[0]
         
         if (rec_seq, lig_seq) in positives:
             continue
+            
+        if (rec_seq, lig_seq) in neg_set:
+            continue
+
+        if self_interactions:
+            # already added self interactions
+            if rec_seq == lig_seq:
+                continue
+        
+        rec_entry = df.loc[df['receptor_seq']==rec_seq, 'entry'].iat[0].split("--")[0]
+        lig_entry = df.loc[df['ligand_seq']==lig_seq, 'entry'].iat[0].split("--")[1]
+        entry = rec_entry + '--' + lig_entry
 
         if path:
             rec_path = df.loc[df['receptor_seq']==rec_seq, 'receptor_path'].iat[0]
             lig_path = df.loc[df['ligand_seq']==lig_seq,   'ligand_path'].iat[0]
             neg_records.append({
+                'entry': entry,
                 'split': split,
                 'receptor_seq': rec_seq,
                 'ligand_seq':  lig_seq,
@@ -251,13 +288,16 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
                 'ligand_path':  lig_path,
                 'label': 0
             })
+            neg_set.add((rec_seq, lig_seq))
         else:
             neg_records.append({
+                'entry': entry,
                 'split': split,
                 'receptor_seq': rec_seq,
                 'ligand_seq':  lig_seq,
                 'label': 0
             })
+            neg_set.add((rec_seq, lig_seq))
 
     return pd.DataFrame(neg_records)
 
@@ -420,6 +460,10 @@ if __name__ == "__main__":
     train = pd.concat([train, neg_train], ignore_index=True)
     val   = pd.concat([val,   neg_val],   ignore_index=True)
     test  = pd.concat([test,  neg_test],  ignore_index=True)
+
+    # Add test classes
+    print("Adding test classes to test set...\n")
+    test = add_test_classes(test)
 
     # Save splits
     print("######### Save dataset splits #########\n")
