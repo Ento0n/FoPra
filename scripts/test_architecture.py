@@ -189,6 +189,8 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
                 classes.append(2)
             elif cls == "undefined":
                 classes.append(3)
+            elif cls == "uniprot-self":
+                classes.append(4)
         classes = torch.tensor(classes, dtype=torch.long)
         
         return recs, ligs, labels, classes
@@ -289,6 +291,9 @@ def test(device, model, test_loader):
     correct_self, total_self = 0, 0
     self_preds, self_labels = [], []
     self_neg, self_pos = 0, 0
+    correct_uni_self, total_uni_self = 0, 0
+    uni_self_preds, uni_self_labels = [], []
+    uni_self_neg, uni_self_pos = 0, 0
     correct_nonself, total_nonself = 0, 0
     nonself_preds, nonself_labels = [], []
     nonself_neg, nonself_pos = 0, 0
@@ -325,6 +330,14 @@ def test(device, model, test_loader):
             self_labels.extend(labels[classes == 1].cpu().numpy())
             self_neg += (labels[classes == 1] == 0).sum().item()
             self_pos += (labels[classes == 1] == 1).sum().item()
+
+            # UniProt self
+            correct_uni_self += ((preds == labels) & (classes == 4)).sum().item()
+            total_uni_self += (classes == 4).sum().item()
+            uni_self_preds.extend(preds[classes == 4].cpu().numpy())
+            uni_self_labels.extend(labels[classes == 4].cpu().numpy())
+            uni_self_neg += (labels[classes == 4] == 0).sum().item()
+            uni_self_pos += (labels[classes == 4] == 1).sum().item()
 
             # non-self
             correct_nonself += ((preds == labels) & (classes == 2)).sum().item()
@@ -655,7 +668,7 @@ def main():
         embedding_type = "mean"
     
     # embedding cache dir
-    cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/{embedding_type}"
+    cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/pinder/{embedding_type}"
     
     # print encoding type
     if not args.one_hot:

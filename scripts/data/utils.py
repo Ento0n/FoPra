@@ -2,8 +2,6 @@ import pandas as pd
 import os
 import argparse
 
-from create_dataset import sample_negatives
-
 def add_labels():
     identity_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test_with_identities_raw.csv"
     origin_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test.csv"
@@ -40,15 +38,21 @@ def add_test_classes(path: str = None, df: pd.DataFrame = None) -> None:
     # create sequence to uniprot mapping
     seq_to_uniprot = {}
     test_pos = test_df[test_df["label"] == 1]
-    for _, row in test_pos.iterrows():
+    for idx, row in test_pos.iterrows():
         rec_uniprot = row["entry"].split("--")[0].split("_")[-1]
         lig_uniprot = row["entry"].split("--")[1].split("_")[-1]
 
         seq_to_uniprot[row["receptor_seq"]] = rec_uniprot
         seq_to_uniprot[row["ligand_seq"]] = lig_uniprot
 
-    # add UNDEFINED class based on uniprot accession
-    test_df["class"] = test_df.apply(lambda row: "undefined" if seq_to_uniprot[row["receptor_seq"]] == "UNDEFINED" or seq_to_uniprot[row["ligand_seq"]] == "UNDEFINED" else row["class"], axis=1)
+        # edit class when self-interaction with equal uniprot ids
+        if rec_uniprot == lig_uniprot and row["class"] != "self":
+            test_df.at[idx, "class"] = "uniprot-self"
+
+        # edit class when undefined in uniprot ids
+        if rec_uniprot == "undefined" or lig_uniprot == "undefined":
+            test_df.at[idx, "class"] = "undefined"
+
 
     # save updated test_df
     if path is not None:
@@ -102,12 +106,18 @@ def create_fasta_file(df: pd.DataFrame, split: str, out_path: str) -> None:
 
 def remove_duplicate_interactions(df: pd.DataFrame, split: str) -> pd.DataFrame:
     print(f"Removing duplicate interactions in {split} set, size before: {len(df)}")
+
+    # bidirectional dataset requires removing both A-B and B-A interactions
     df = df.drop_duplicates(subset=['receptor_seq', 'ligand_seq'])
     df = df.drop_duplicates(subset=['ligand_seq', 'receptor_seq'])
+
     print(f"Size after: {len(df)}\n")
+
     return df
 
 def helper_remove_duplicate_interactions(path: str, out_path: str):
+    from create_dataset import sample_negatives
+
     train = pd.read_csv(os.path.join(path, "train.csv"))
     val = pd.read_csv(os.path.join(path, "val.csv"))
     test = pd.read_csv(os.path.join(path, "test.csv"))
