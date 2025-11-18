@@ -12,7 +12,6 @@ import torch.optim as optim
 import torch.nn.functional as F
 import wandb
 from models.linearFC import LinearFC
-from models.baseline_fc_conv import baseline2d
 from functools import partial
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
