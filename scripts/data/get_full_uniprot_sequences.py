@@ -1,10 +1,12 @@
 import os
+import sys
 import requests
+from collections import Counter
 
 if __name__ == "__main__":
-    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/unique_sequences_uniprot_id"
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/uniprot"
 
-    fasta = os.path.join(path, "unique_uniprot_ids.fasta")
+    fasta = os.path.join(path, "unique_uniprot_sequences.fasta")
 
     with open(fasta, "r") as f:
         ids = []
@@ -19,6 +21,8 @@ if __name__ == "__main__":
     uniprot_stream = "https://rest.uniprot.org/uniprotkb/stream"
 
     out = {}
+    tax_ids = {}
+    species_counter = Counter()
     s = requests.Session()
     batch_size = 50
     for i in range(0, len(ids), batch_size):
@@ -54,6 +58,15 @@ if __name__ == "__main__":
                 uid = line.strip().split("|")[1]
                 collecting = True
 
+                # extract species info
+                split_one = line.split("OS=")[1].split(" ")[0].strip()
+                split_two = line.split("OS=")[1].split(" ")[1].strip()
+                species_counter[split_one + " " + split_two] += 1
+
+                # extract tax id
+                tax_id = line.split("OX=")[1].split(" ")[0].strip()
+                tax_ids[split_one + " " + split_two] = tax_id
+
             else:
                 seq.append(line.strip())
 
@@ -71,4 +84,10 @@ if __name__ == "__main__":
     with open(out_file, "w") as f:
         for uid, seq in out.items():
             f.write(f">{uid}\n{seq}\n")
+    
+    out_species = os.path.join(path, "uniprot_species_distribution.tsv")
+    with open(out_species, "w") as f:
+        f.write("Species\tTax ID\tCount\n")
+        for species, count in species_counter.most_common():
+            f.write(f"{species}\t{tax_ids[species]}\t{count}\n")
 
