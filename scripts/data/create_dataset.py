@@ -3,7 +3,6 @@ import sys
 
 from matplotlib import pyplot as plt
 
-os.environ['PINDER_BASE_DIR'] = '/nfs/scratch/pinder'
 os.environ['MPLCONFIGDIR'] = '/nfs/scratch/pinder/negative_dataset'
 
 from pinder.core import get_pinder_location, get_index, PinderSystem
@@ -13,6 +12,7 @@ from collections import Counter
 import argparse
 
 from utils import add_test_classes
+from utils import sample_negatives
 
 
 # Remove redundant entries from the dataset
@@ -74,11 +74,11 @@ def extract_info(df:pd.DataFrame) -> pd.DataFrame:
         records.append({
             'entry': entry,
             'split': ps.entry.split,
+            'label': 1,  # Label is always 1 for positive pairs
             'receptor_seq': ps.holo_receptor.sequence,
             'ligand_seq': ps.holo_ligand.sequence,
             'receptor_path': ps.holo_receptor.filepath,
-            'ligand_path': ps.holo_ligand.filepath,
-            'label': 1,  # Label is always 1 for positive pairs
+            'ligand_path': ps.holo_ligand.filepath
         })
 
     # After info to skipping entries was printed, skip a line
@@ -153,153 +153,6 @@ def remove_similar_sequences(df: pd.DataFrame, df_split: str, other_split: str, 
     df = df[df['receptor_seq'].isin(allowed_seqs) & df['ligand_seq'].isin(allowed_seqs)]
 
     return df
-
-def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = True, self_interactions: bool = False) -> pd.DataFrame:
-    """
-    Sample negative pairs for a given split, matching the sequence frequency distribution of positives.
-
-    Randomly pairs receptor and ligand sequences (not present as positives) with probability proportional
-    to their frequency in the positive set.
-
-    Args:
-        df (pd.DataFrame): DataFrame of positive pairs for the split.
-        split (str): Name of the split.
-        n_samples (int): Number of negative samples to generate.
-
-    Returns:
-        pd.DataFrame: DataFrame of negative pairs.
-    """
-
-    # all positives
-    positives = set(zip(df['receptor_seq'], df['ligand_seq']))
-
-    # receptor
-    rec_counter = Counter(df['receptor_seq'])
-    rec_seqs    = list(rec_counter.keys())
-    rec_weights = [rec_counter[s] for s in rec_seqs]
-
-    # ligand
-    lig_counter = Counter(df['ligand_seq'])
-    lig_seqs    = list(lig_counter.keys())
-    lig_weights = [lig_counter[s] for s in lig_seqs]
-
-    # Add as many self interactions as possible (depends on how many sequences are not already self interacting in positives)
-    neg_records = []
-    neg_set = set()
-    if self_interactions:
-        self_interacting_df = df[df['receptor_seq'] == df['ligand_seq']]
-        n_self_interactions = len(self_interacting_df)
-
-        # sequences not self interacting
-        self_interacting_seqs = set(self_interacting_df['receptor_seq'])
-        all_seqs = rec_seqs + lig_seqs
-        seqs_non_self = [s for s in all_seqs if s not in self_interacting_seqs]
-
-        if n_self_interactions < len(seqs_non_self):
-            seqs_non_self = seqs_non_self[:n_self_interactions]
-        
-        print(f"Adding {len(seqs_non_self)} self-interactions as negatives in split {split}.")
-        print(f"# of unique sequences in positive self interactions: {len(self_interacting_seqs)}")
-        print(f"# of self interactions in positives: {n_self_interactions}\n")
-        
-        for seq in seqs_non_self:
-            # extract entry for receptor (since receptor and ligand are the same here only 1 needed)
-            rec_entry_obj = df.loc[df['receptor_seq']==seq, 'entry']
-            lig_entry_obj = df.loc[df['ligand_seq']==seq, 'entry']
-            if not rec_entry_obj.empty:
-                identifier = rec_entry_obj.iat[0].split("--")[0]
-            elif not lig_entry_obj.empty:
-                identifier = lig_entry_obj.iat[0].split("--")[1]
-            else:
-                print(f"Warning: Could not find entry for self-interacting sequence {seq} in split {split}. Using 'unknown_entry' as placeholder.")
-                identifier = "unknown_entry"
-            
-            # create record with paths if available
-            if path:
-                rec_path_obj = df.loc[df['receptor_seq']==seq, 'receptor_path']
-                lig_path_obj = df.loc[df['ligand_seq']==seq,   'ligand_path']
-                if not rec_path_obj.empty:
-                    rec_path = rec_path_obj.iat[0]
-                    lig_path = rec_path_obj.iat[0]
-                elif not lig_path_obj.empty:
-                    rec_path = lig_path_obj.iat[0]
-                    lig_path = lig_path_obj.iat[0]
-                else:
-                    print(f"Warning: Could not find path for self-interacting sequence {seq} in split {split}. Paths will be set to None.")
-                    rec_path = None
-                    lig_path = None
-                
-                neg_records.append({
-                    'entry': identifier + '--' + identifier,
-                    'split': split,
-                    'receptor_seq': seq,
-                    'ligand_seq':  seq,
-                    'receptor_path': rec_path,
-                    'ligand_path':  lig_path,
-                    'label': 0
-                })
-
-            else:
-                neg_records.append({
-                    'entry': identifier + '--' + identifier,
-                    'split': split,
-                    'receptor_seq': seq,
-                    'ligand_seq':  seq,
-                    'label': 0
-                })
-
-            neg_set.add((seq, seq))
-
-            # reduce weights accordingly
-            rec_index = rec_seqs.index(seq)
-            lig_index = lig_seqs.index(seq)
-            rec_weights[rec_index] = max(0, rec_weights[rec_index] - 1)
-            lig_weights[lig_index] = max(0, lig_weights[lig_index] - 1)
-
-    # sample not self interacting until n_samples is reached
-    while len(neg_records) < n_samples:
-        rec_seq = random.choices(rec_seqs, weights=rec_weights, k=1)[0]
-        lig_seq = random.choices(lig_seqs, weights=lig_weights, k=1)[0]
-        
-        if (rec_seq, lig_seq) in positives:
-            continue
-            
-        if (rec_seq, lig_seq) in neg_set:
-            continue
-
-        if self_interactions:
-            # already added self interactions
-            if rec_seq == lig_seq:
-                continue
-        
-        rec_entry = df.loc[df['receptor_seq']==rec_seq, 'entry'].iat[0].split("--")[0]
-        lig_entry = df.loc[df['ligand_seq']==lig_seq, 'entry'].iat[0].split("--")[1]
-        entry = rec_entry + '--' + lig_entry
-
-        if path:
-            rec_path = df.loc[df['receptor_seq']==rec_seq, 'receptor_path'].iat[0]
-            lig_path = df.loc[df['ligand_seq']==lig_seq,   'ligand_path'].iat[0]
-            neg_records.append({
-                'entry': entry,
-                'split': split,
-                'receptor_seq': rec_seq,
-                'ligand_seq':  lig_seq,
-                'receptor_path': rec_path,
-                'ligand_path':  lig_path,
-                'label': 0
-            })
-            neg_set.add((rec_seq, lig_seq))
-        else:
-            neg_records.append({
-                'entry': entry,
-                'split': split,
-                'receptor_seq': rec_seq,
-                'ligand_seq':  lig_seq,
-                'label': 0
-            })
-            neg_set.add((rec_seq, lig_seq))
-
-    return pd.DataFrame(neg_records)
 
 def deleak_by_uniprot(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -407,11 +260,12 @@ if __name__ == "__main__":
         val   = val[val["label"] == 1]
         test  = test[test["label"] == 1]
 
-        # only 1 index dataframe used for deleaking
-        index = pd.concat([train, val, test], ignore_index=True)
-
         if args.deleak_uniprot:
             print("######### Deleaking dataset by Uniprot IDs #########\n")
+
+            # only 1 index dataframe used for deleaking
+            index = pd.concat([train, val, test], ignore_index=True)
+            
             index = deleak_by_uniprot(index)
 
             # split back into train, val, test
@@ -463,7 +317,7 @@ if __name__ == "__main__":
 
     # Add test classes
     print("Adding test classes to test set...\n")
-    test = add_test_classes(test)
+    test = add_test_classes(df=test)
 
     # Save splits
     print("######### Save dataset splits #########\n")
