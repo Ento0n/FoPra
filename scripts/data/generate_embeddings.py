@@ -268,6 +268,9 @@ def save_structure_embeddings(df, residue, out_dir):
         if not lig_exists and not skip_lig:
             torch.save({"sequence": lig_prot.sequence, "embedding": lig_result.cpu()},
                     os.path.join(out_dir, f"{lig_key}.pt"))
+    
+    for entry, error in faulty.items():
+        print(f"Entry {entry} skipped due to error: {error}")
 
 
 if __name__ == "__main__":

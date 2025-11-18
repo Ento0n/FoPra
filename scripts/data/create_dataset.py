@@ -6,9 +6,7 @@ from matplotlib import pyplot as plt
 os.environ['MPLCONFIGDIR'] = '/nfs/scratch/pinder/negative_dataset'
 
 from pinder.core import get_pinder_location, get_index, PinderSystem
-import random
 import pandas as pd
-from collections import Counter
 import argparse
 
 from utils import add_test_classes
