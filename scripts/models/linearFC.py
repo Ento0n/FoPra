@@ -3,7 +3,7 @@ import torch.nn as nn
 
 
 # 1. Define a simple feed-forward classifier
-class SimpleInteractionNet(nn.Module):
+class LinearFC(nn.Module):
     def __init__(self, input_dim):
         super().__init__()
         self.fc = nn.Sequential(
