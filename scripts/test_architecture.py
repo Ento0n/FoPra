@@ -11,12 +11,17 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 import wandb
-from models.linearFC import SimpleInteractionNet
+from models.linearFC import LinearFC
 from models.baseline_fc_conv import baseline2d
 from functools import partial
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
+from datetime import datetime
+
+def set_seed(seed: int = 42) -> None:
+    np.random.seed(seed)
+    torch.manual_seed(seed)
 
 
 # wrap a pandas DataFrame of sequence pairs into a torch Dataset
@@ -48,7 +53,7 @@ class SequencePairDatasetWithClasses(Dataset):
             'class': row['class']
         }
 
-def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wand_mode="online"):
+def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wand_mode="online", epochs=5, model_name="linearFC", batch_size=4):
     #################__Torch device__################
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -67,10 +72,10 @@ def setup(cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size
         # Track hyperparameters and run metadata.
         config={
             "learning_rate": 0.0001,
-            "architecture": "baselineFC",
-            "dataset": "Pinder_fully_deleaked",
-            "batch_size": 4,
-            "epochs": 5,
+            "architecture": model_name,
+            "dataset": path,
+            "batch_size": batch_size,
+            "epochs": epochs,
         },
         # mode
         mode=wand_mode,
@@ -199,7 +204,7 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
 
 #######################################__Model__##################################################
 
-def setup_model(train_loader, device, run, residue):
+def setup_model(train_loader, device, run, residue, model_name):
     # 2. Setup device, model, optimizer, and loss function
     if residue:
         rec_emb_sample, _,  _ = next(iter(train_loader))
@@ -208,12 +213,8 @@ def setup_model(train_loader, device, run, residue):
         rec_emb_sample, lig_emb_sample, _ = next(iter(train_loader))
         embed_dim = rec_emb_sample.size(1) + lig_emb_sample.size(1)  # Assuming the embedding dimension is the second dimension
 
-    # Initialize the model
-    if residue:
-        model = baseline2d(embed_dim).to(device)
-    else:
-        model = SimpleInteractionNet(embed_dim).to(device)
-        # model = RichouxInteractionNet(embed_dim).to(device)
+    if model_name == "LinearFC":
+        model = LinearFC(embed_dim).to(device)
 
     
     # Initialize optimizer and loss function
@@ -229,13 +230,21 @@ def setup_model(train_loader, device, run, residue):
     return model, optimizer, criterion
 
 
-def train(device, run, model, optimizer, criterion, train_loader, val_loader):
-    # 3. Training loop
+def train(device, run, model, optimizer, criterion, train_loader, val_loader, training_limit):
+    # give info that training size is limited
+    if training_limit:
+        print(f"*** Training is limited to {training_limit} batches per epoch for debugging purposes ***\n")
+
+    # Training loop
     for i in range(run.config.epochs):
 
         model.train()
         total_loss = 0.0
-        for rec_emb, lig_emb, labels in train_loader:                
+        for idx, (rec_emb, lig_emb, labels) in enumerate(train_loader):
+            # early stopping for debugging with limited training samples
+            if training_limit and idx >= training_limit:
+                break
+
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
             logits = model(rec_emb, lig_emb)
 
@@ -300,7 +309,7 @@ def test(device, model, test_loader):
     correct_undefined, total_undefined = 0, 0
     undefined_preds, undefined_labels = [], []
     undefined_neg, undefined_pos = 0, 0
-    all_preds, all_labels = [], []
+    all_probs, all_preds, all_labels, all_classes = [], [], [], []
     with torch.no_grad():
         for rec_emb, lig_emb, labels, classes in test_loader:
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
@@ -355,27 +364,48 @@ def test(device, model, test_loader):
             undefined_neg += (labels[classes == 3] == 0).sum().item()
             undefined_pos += (labels[classes == 3] == 1).sum().item()
 
-            # Collect all preds and labels for confusion matrix
+            # Collect all probs, preds and labels for confusion matrix
+            all_probs.extend(probs.cpu().numpy())
             all_preds.extend(preds.cpu().numpy())
             all_labels.extend(labels.cpu().numpy())
+            all_classes.extend(classes.cpu().numpy())
 
-    print(f"General test accuracy: {correct/total*100:.2f}%")
+    print(f"General test accuracy: {correct/total*100:.2f}% ({total} samples)")
     print(f"Total negative samples: {neg}, Total positive samples: {pos}")
     print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}\n")
 
-    print(f"Self-interaction test accuracy: {correct_self/total_self*100:.2f}% ({total_self} samples)")
-    print(f"Self negative samples: {self_neg}, Self positive samples: {self_pos}")
-    print(f"Confusion Matrix:\n{confusion_matrix(self_labels, self_preds, labels=[0,1])}\n")
+    if total_self > 0:
+        print(f"Self-interaction test accuracy: {correct_self/total_self*100:.2f}% ({total_self} samples)")
+        print(f"Self negative samples: {self_neg}, Self positive samples: {self_pos}")
+        print(f"Confusion Matrix:\n{confusion_matrix(self_labels, self_preds, labels=[0,1])}\n")
+    else:
+        print("No samples in self class.\n")
 
-    print(f"Non-self-interaction test accuracy: {correct_nonself/total_nonself*100:.2f}% ({total_nonself} samples)")
-    print(f"Non-self negative samples: {nonself_neg}, Non-self positive samples: {nonself_pos}")
-    print(f"Confusion Matrix:\n{confusion_matrix(nonself_labels, nonself_preds, labels=[0,1])}\n")
+    if total_uni_self > 0:
+        print(f"UniProt-self-interaction test accuracy: {correct_uni_self/total_uni_self*100:.2f}% ({total_uni_self} samples)")
+        print(f"UniProt-self negative samples: {uni_self_neg}, UniProt-self positive samples: {uni_self_pos}")
+        print(f"Confusion Matrix:\n{confusion_matrix(uni_self_labels, uni_self_preds, labels=[0,1])}\n")
+    else:
+        print("No samples in UniProt-self class.\n")
 
-    print(f"Undefined class test accuracy: {correct_undefined/total_undefined*100:.2f}% ({total_undefined} samples)")
-    print(f"Undefined negative samples: {undefined_neg}, Undefined positive samples: {undefined_pos}")
-    print(f"Confusion Matrix:\n{confusion_matrix(undefined_labels, undefined_preds, labels=[0,1])}\n")
+    if total_nonself > 0:
+        print(f"Non-self-interaction test accuracy: {correct_nonself/total_nonself*100:.2f}% ({total_nonself} samples)")
+        print(f"Non-self negative samples: {nonself_neg}, Non-self positive samples: {nonself_pos}")
+        print(f"Confusion Matrix:\n{confusion_matrix(nonself_labels, nonself_preds, labels=[0,1])}\n")
+    else:
+        print("No samples in non-self class.\n")
 
-    return all_preds, all_labels
+    if total_undefined > 0:
+        print(f"Undefined class test accuracy: {correct_undefined/total_undefined*100:.2f}% ({total_undefined} samples)")
+        print(f"Undefined negative samples: {undefined_neg}, Undefined positive samples: {undefined_pos}")
+        print(f"Confusion Matrix:\n{confusion_matrix(undefined_labels, undefined_preds, labels=[0,1])}\n")
+    else:
+        print("No samples in undefined class.\n")
+
+    all_probs = np.round(np.array(all_probs, dtype=np.float32), 3).tolist()
+    all_probs = [round(x, 3) for x in all_probs]
+
+    return all_probs,all_preds, all_labels, all_classes
 
 def handle_random_forest(train_csv, test_csv):
     from sklearn.ensemble import RandomForestClassifier
@@ -637,14 +667,20 @@ def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
 
 
 def main():
+    # set seed
+    set_seed()
+
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Test ML Architecture for Protein Interaction Prediction")
     parser.add_argument('--token', type=str, default=None, required=True, help='Token for WandB login')
     parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
+    parser.add_argument('--cache_dir', type=str, default=None, help='Path to the embedding cache directory')
+    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs')
+    parser.add_argument('--model', type=str, required=True, help='Model architecture to use')
     parser.add_argument('--random_forest', action='store_true', help='If set, run Random Forest classifier instead of NN')
     parser.add_argument('--lrp', action='store_true', help='If set, perform LRP analysis after testing')
     parser.add_argument('--judith_test', action='store_true', help='If set, use Judith gold standard test set')
-    parser.add_argument('--save_predictions', action='store_true', help='If set, save predictions to a CSV file')
+    parser.add_argument('--limit_training', type=int, default=None, help='Limit the number of training samples (for quick tests)')
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--residue', action='store_true', help='Use residue-level embeddings instead of mean embeddings')
@@ -667,13 +703,10 @@ def main():
     else:
         embedding_type = "mean"
     
-    # embedding cache dir
-    cache_dir = f"/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM3/pinder/{embedding_type}"
-    
     # print encoding type
     if not args.one_hot:
         print(f"Using {embedding_type} embeddings\n")
-        print(f"Using embedding cache dir: {cache_dir}\n")
+        print(f"Using embedding cache dir: {args.cache_dir}\n")
     else:
         print("Using one-hot encoding\n")
     
@@ -699,19 +732,39 @@ def main():
         handle_random_forest(train_csv, test_csv)
         sys.exit(0)
 
-    # PIPELINE
-    device, run, train_loader, val_loader, test_loader = setup(cache_dir, train_csv, val_csv, test_csv, args.residue, args.one_hot, kernel_size, wandb_mode)
-    model, optimizer, criterion = setup_model(train_loader, device, run, args.residue)
-    train(device, run, model, optimizer, criterion, train_loader, val_loader)
-    all_preds, all_labels = test(device, model, test_loader)
+    # Fit training limit to batch size
+    batch_size = 4
+    if args.limit_training is not None:
+        args.limit_training = args.limit_training // batch_size
 
-    if args.save_predictions:
-        print("Saving test predictions to CSV file...\n")
-        test_df = pd.read_csv(os.path.join(args.path, "test_with_identities.csv"))
-        test_df['pred'] = all_preds
-        test_df['check_labels'] = all_labels
-        out_csv = os.path.join(args.path, "test_predictions.csv")
-        test_df.to_csv(out_csv, index=False)
+    # PIPELINE
+    device, run, train_loader, val_loader, test_loader = setup(args.path, args.cache_dir, train_csv, val_csv, test_csv, args.residue, args.one_hot, kernel_size, wandb_mode, args.epochs, args.model, batch_size)
+    model, optimizer, criterion = setup_model(train_loader, device, run, args.residue, args.model)
+    train(device, run, model, optimizer, criterion, train_loader, val_loader, args.limit_training)
+    all_probs, all_preds, all_labels, all_classes = test(device, model, test_loader)
+
+    # Save predictions to CSV file
+    encoding = "residue" if args.residue else "mean"
+    if encoding == "mean":
+        if "ESM3" in args.cache_dir:
+            encoding = "mean_ESM3"
+        elif "ESM2" in args.cache_dir:
+            encoding = "mean_ESM2"
+        if "sequence_structure" in args.cache_dir:
+            encoding += "_structure"
+    if encoding == "residue":
+        if "ESM3" in args.cache_dir:
+            encoding = "residue_ESM3"
+        elif "ESM2" in args.cache_dir:
+            encoding = "residue_ESM2"
+        if "sequence_structure" in args.cache_dir:
+            encoding += "_structure"
+    encoding = "one_hot" if args.one_hot else encoding
+    test_df = pd.read_csv(os.path.join(args.path, "test.csv"))
+    with open(os.path.join(args.path, f"test_predictions_{args.model}_{encoding}.txt"), "w") as f:
+        f.write("entry,probability,prediction,label,class,model_name,time_stamp\n")
+        for idx, row in test_df.iterrows():
+            f.write(f"{row['entry']},{all_probs[idx]},{all_preds[idx]},{all_labels[idx]},{all_classes[idx]},{args.model},{datetime.now().isoformat(timespec='minutes')}\n")
 
     # LRP analysis if specified
     if args.lrp:
