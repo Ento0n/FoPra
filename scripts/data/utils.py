@@ -1,6 +1,269 @@
 import pandas as pd
 import os
 import argparse
+from collections import Counter
+import random
+
+# self interactions doesn't consider duplicate interactions
+def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = True, self_interactions: bool = False) -> pd.DataFrame:
+    """
+    Sample negative pairs for a given split, matching the sequence frequency distribution of positives.
+
+    Randomly pairs receptor and ligand sequences (not present as positives) with probability proportional
+    to their frequency in the positive set.
+
+    Args:
+        df (pd.DataFrame): DataFrame of positive pairs for the split.
+        split (str): Name of the split.
+        n_samples (int): Number of negative samples to generate.
+
+    Returns:
+        pd.DataFrame: DataFrame of negative pairs.
+    """
+
+    # all positives
+    positives = set(zip(df['receptor_seq'], df['ligand_seq']))
+
+    # receptor
+    rec_counter = Counter(df['receptor_seq'])
+    rec_seqs    = list(rec_counter.keys())
+    rec_weights = [rec_counter[s] for s in rec_seqs]
+
+    # ligand
+    lig_counter = Counter(df['ligand_seq'])
+    lig_seqs    = list(lig_counter.keys())
+    lig_weights = [lig_counter[s] for s in lig_seqs]
+
+    # Add as many self interactions as possible (depends on how many sequences are not already self interacting in positives)
+    neg_records = []
+    neg_set = set()
+    if self_interactions:
+        self_interacting_df = df[df['receptor_seq'] == df['ligand_seq']]
+        n_self_interactions = len(self_interacting_df)
+
+        # sequences not self interacting
+        self_interacting_seqs = set(self_interacting_df['receptor_seq'])
+        all_seqs = rec_seqs + lig_seqs
+        seqs_non_self = [s for s in all_seqs if s not in self_interacting_seqs]
+
+        print(f"# of possible self interactions to add as negatives in split {split}: {len(seqs_non_self)}")
+        print(f"# of unique sequences in positive self interactions: {len(self_interacting_seqs)}")
+
+        if n_self_interactions < len(seqs_non_self):
+            seqs_non_self = seqs_non_self[:n_self_interactions]
+        
+        print(f"Adding {len(seqs_non_self)} self-interactions as negatives in split {split}.")
+        print(f"# of self interactions in positives: {n_self_interactions}\n")
+        
+        # up to now no duplicates are handled.....
+        for seq in seqs_non_self:
+            # extract entry for receptor (since receptor and ligand are the same here only 1 needed)
+            rec_entry_obj = df.loc[df['receptor_seq']==seq, 'entry']
+            lig_entry_obj = df.loc[df['ligand_seq']==seq, 'entry']
+            if not rec_entry_obj.empty:
+                identifier = rec_entry_obj.iat[0].split("--")[0]
+            elif not lig_entry_obj.empty:
+                identifier = lig_entry_obj.iat[0].split("--")[1]
+            else:
+                print(f"Warning: Could not find entry for self-interacting sequence {seq} in split {split}. Using 'unknown_entry' as placeholder.")
+                identifier = "unknown_entry"
+            
+            # create record with paths if available
+            if path:
+                rec_path_obj = df.loc[df['receptor_seq']==seq, 'receptor_path']
+                lig_path_obj = df.loc[df['ligand_seq']==seq,   'ligand_path']
+                if not rec_path_obj.empty:
+                    rec_path = rec_path_obj.iat[0]
+                    lig_path = rec_path_obj.iat[0]
+                elif not lig_path_obj.empty:
+                    rec_path = lig_path_obj.iat[0]
+                    lig_path = lig_path_obj.iat[0]
+                else:
+                    print(f"Warning: Could not find path for self-interacting sequence {seq} in split {split}. Paths will be set to None.")
+                    rec_path = None
+                    lig_path = None
+                
+                neg_records.append({
+                    'entry': identifier + '--' + identifier,
+                    'split': split,
+                    'receptor_seq': seq,
+                    'ligand_seq':  seq,
+                    'receptor_path': rec_path,
+                    'ligand_path':  lig_path,
+                    'label': 0
+                })
+
+            else:
+                neg_records.append({
+                    'entry': identifier + '--' + identifier,
+                    'split': split,
+                    'receptor_seq': seq,
+                    'ligand_seq':  seq,
+                    'label': 0
+                })
+
+            neg_set.add((seq, seq))
+
+            # reduce weights accordingly
+            if seq in rec_seqs:
+                rec_index = rec_seqs.index(seq)
+                rec_weights[rec_index] = max(0, rec_weights[rec_index] - 1)
+            
+            if seq in lig_seqs:
+                lig_index = lig_seqs.index(seq)
+                lig_weights[lig_index] = max(0, lig_weights[lig_index] - 1)
+
+    # sample not self interacting until n_samples is reached
+    while len(neg_records) < n_samples:
+        rec_seq = random.choices(rec_seqs, weights=rec_weights, k=1)[0]
+        lig_seq = random.choices(lig_seqs, weights=lig_weights, k=1)[0]
+        
+        if (rec_seq, lig_seq) in positives:
+            continue
+            
+        if (rec_seq, lig_seq) in neg_set:
+            continue
+
+        if self_interactions:
+            # already added self interactions
+            if rec_seq == lig_seq:
+                continue
+        
+        rec_entry = df.loc[df['receptor_seq']==rec_seq, 'entry'].iat[0].split("--")[0]
+        lig_entry = df.loc[df['ligand_seq']==lig_seq, 'entry'].iat[0].split("--")[1]
+        entry = rec_entry + '--' + lig_entry
+
+        if path:
+            rec_path = df.loc[df['receptor_seq']==rec_seq, 'receptor_path'].iat[0]
+            lig_path = df.loc[df['ligand_seq']==lig_seq,   'ligand_path'].iat[0]
+            neg_records.append({
+                'entry': entry,
+                'split': split,
+                'receptor_seq': rec_seq,
+                'ligand_seq':  lig_seq,
+                'receptor_path': rec_path,
+                'ligand_path':  lig_path,
+                'label': 0
+            })
+            neg_set.add((rec_seq, lig_seq))
+        else:
+            neg_records.append({
+                'entry': entry,
+                'split': split,
+                'receptor_seq': rec_seq,
+                'ligand_seq':  lig_seq,
+                'label': 0
+            })
+            neg_set.add((rec_seq, lig_seq))
+
+    return pd.DataFrame(neg_records)
+
+def resample_negatives(path: str, half_balance: bool) -> None:
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val   = pd.read_csv(os.path.join(path, "val.csv"))
+    test  = pd.read_csv(os.path.join(path, "test.csv"))
+
+    train_pos = train[train["label"] == 1]
+    val_pos   = val[val["label"] == 1]
+    test_pos  = test[test["label"] == 1]
+
+    if not half_balance:
+        train_neg = sample_negatives(train_pos, "train", len(train_pos))
+        val_neg   = sample_negatives(val_pos,   "val",   len(val_pos))
+        test_neg  = sample_negatives(test_pos,  "test",  len(test_pos))
+    else:
+        train_neg = sample_negatives(train_pos, "train", len(train_pos), self_interactions=True)
+        val_neg   = sample_negatives(val_pos,   "val",   len(val_pos),   self_interactions=True)
+        test_neg  = sample_negatives(test_pos,  "test",  len(test_pos),  self_interactions=True)
+
+    train = pd.concat([train_pos, train_neg], ignore_index=True)
+    val   = pd.concat([val_pos,   val_neg],   ignore_index=True)
+    test  = pd.concat([test_pos,  test_neg],  ignore_index=True)
+
+    # add test classes
+    test = add_test_classes(df=test)
+
+    train.to_csv(os.path.join(path, "train.csv"), index=False)
+    val.to_csv(os.path.join(path, "val.csv"), index=False)
+    test.to_csv(os.path.join(path, "test.csv"), index=False)
+
+def completely_balanced_splits(path: str, out_path: str):
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val = pd.read_csv(os.path.join(path, "val.csv"))
+    test = pd.read_csv(os.path.join(path, "test.csv"))
+
+    print(f"Creating completely balanced splits using splits from: {path}\n")
+
+    # consider only positive samples for deleaking
+    train = train[train["label"] == 1]
+    val = val[val["label"] == 1]
+    test = test[test["label"] == 1]
+
+    # train, val and test should have as many self interacting in positive as in negative -> remove from positive set
+    train_self = train[train["receptor_seq"] == train["ligand_seq"]]
+    train_nonself = train[train["receptor_seq"] != train["ligand_seq"]]
+    train_self_seqs_uniq = set(train_self["receptor_seq"].unique())
+    train_nonself_seqs_uniq = set(list(train_nonself["receptor_seq"].unique()) + list(train_nonself["ligand_seq"].unique()))
+    print(f"Train has {len(train_self_seqs_uniq)} self interacting sequences and {len(train_nonself_seqs_uniq)} non-self interacting sequences.")
+    if len(train_self_seqs_uniq) > len(train_nonself_seqs_uniq):
+        #sample len(nonself_seqs_uniq) self interacting sequences
+        sampled_seqs = random.sample(list(train_self_seqs_uniq), k=len(train_nonself_seqs_uniq))
+        train_self = train_self[train_self["receptor_seq"].isin(sampled_seqs)]
+        train = pd.concat([train_self, train_nonself], ignore_index=True)
+        print(f"Train should have {len(train_nonself_seqs_uniq)} self interacting sequences to be balanced.")
+        print(f"Now train has {len(train[train['receptor_seq'] == train['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+
+    # repeat for val set
+    val_self = val[val["receptor_seq"] == val["ligand_seq"]]
+    val_nonself = val[val["receptor_seq"] != val["ligand_seq"]]
+    val_self_seqs_uniq = set(val_self["receptor_seq"].unique())
+    val_nonself_seqs_uniq = set(list(val_nonself["receptor_seq"].unique()) + list(val_nonself["ligand_seq"].unique()))
+
+    print(f"Val has {len(val_self_seqs_uniq)} self interacting sequences and {len(val_nonself_seqs_uniq)} non-self interacting sequences.")
+    if len(val_self_seqs_uniq) > len(val_nonself_seqs_uniq):
+        #sample len(nonself_seqs_uniq) self interacting sequences
+        sampled_seqs = random.sample(list(val_self_seqs_uniq), k=len(val_nonself_seqs_uniq))
+        val_self = val_self[val_self["receptor_seq"].isin(sampled_seqs)]
+        val = pd.concat([val_self, val_nonself], ignore_index=True)
+        print(f"Val should have {len(val_nonself_seqs_uniq)} self interacting sequences to be balanced.")
+        print(f"Now val has {len(val[val['receptor_seq'] == val['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+
+
+    # repeat for test set
+    test_self = test[test["receptor_seq"] == test["ligand_seq"]]
+    test_nonself = test[test["receptor_seq"] != test["ligand_seq"]]
+    test_self_seqs_uniq = set(test_self["receptor_seq"].unique())
+    test_nonself_seqs_uniq = set(list(test_nonself["receptor_seq"].unique()) + list(test_nonself["ligand_seq"].unique()))
+    
+
+    print(f"Test has {len(test_self_seqs_uniq)} self interacting sequences and {len(test_nonself_seqs_uniq)} non-self interacting sequences.")
+    if len(test_self_seqs_uniq) > len(test_nonself_seqs_uniq):
+        #sample len(nonself_seqs_uniq) self interacting sequences
+        sampled_seqs = random.sample(list(test_self_seqs_uniq), k=len(test_nonself_seqs_uniq))
+        test_self = test_self[test_self["receptor_seq"].isin(sampled_seqs)]
+        test = pd.concat([test_self, test_nonself], ignore_index=True)
+        print(f"Test should have {len(test_nonself_seqs_uniq)} self interacting sequences to be balanced.")
+        print(f"Now test has {len(test[test['receptor_seq'] == test['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+
+    # new line for nicer stdout
+    print("\n")
+
+    # sample negatives for val and test
+    neg_val = sample_negatives(val, split="val", n_samples=len(val), self_interactions=True)
+    neg_test = sample_negatives(test, split="test", n_samples=len(test), self_interactions=True)
+    neg_train = sample_negatives(train, split="train", n_samples=len(train), self_interactions=True)
+
+    val = pd.concat([val, neg_val], ignore_index=True)
+    test = pd.concat([test, neg_test], ignore_index=True)
+    train = pd.concat([train, neg_train], ignore_index=True)
+
+    # add test classes
+    test = add_test_classes(df=test)
+
+    # save splits
+    train.to_csv(os.path.join(out_path, "train.csv"), index=False)
+    val.to_csv(os.path.join(out_path, "val.csv"), index=False)
+    test.to_csv(os.path.join(out_path, "test.csv"), index=False)
 
 def add_labels():
     identity_df_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/deleak_uniprot/deleak_cdhit/test_with_identities_raw.csv"
@@ -34,23 +297,19 @@ def add_test_classes(path: str = None, df: pd.DataFrame = None) -> None:
 
     # add self-interaction class
     test_df["class"] = test_df.apply(lambda row: "self" if row["receptor_seq"] == row["ligand_seq"] else "non-self", axis=1)
+    test_df.insert(3, "class", test_df.pop("class")) # move to 4th column
 
-    # create sequence to uniprot mapping
-    seq_to_uniprot = {}
-    test_pos = test_df[test_df["label"] == 1]
-    for idx, row in test_pos.iterrows():
+    # Hnadle special cases based on uniprot ids
+    for idx, row in test_df.iterrows():
         rec_uniprot = row["entry"].split("--")[0].split("_")[-1]
         lig_uniprot = row["entry"].split("--")[1].split("_")[-1]
-
-        seq_to_uniprot[row["receptor_seq"]] = rec_uniprot
-        seq_to_uniprot[row["ligand_seq"]] = lig_uniprot
 
         # edit class when self-interaction with equal uniprot ids
         if rec_uniprot == lig_uniprot and row["class"] != "self":
             test_df.at[idx, "class"] = "uniprot-self"
 
         # edit class when undefined in uniprot ids
-        if rec_uniprot == "undefined" or lig_uniprot == "undefined":
+        if rec_uniprot.lower() == "undefined" or lig_uniprot.lower() == "undefined":
             test_df.at[idx, "class"] = "undefined"
 
 
@@ -116,7 +375,6 @@ def remove_duplicate_interactions(df: pd.DataFrame, split: str) -> pd.DataFrame:
     return df
 
 def helper_remove_duplicate_interactions(path: str, out_path: str):
-    from create_dataset import sample_negatives
 
     train = pd.read_csv(os.path.join(path, "train.csv"))
     val = pd.read_csv(os.path.join(path, "val.csv"))
@@ -145,11 +403,41 @@ def helper_remove_duplicate_interactions(path: str, out_path: str):
     val.to_csv(os.path.join(out_path, "val.csv"), index=False)
     test.to_csv(os.path.join(out_path, "test.csv"), index=False)
 
+def add_split_column(path: str) -> pd.DataFrame:
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val   = pd.read_csv(os.path.join(path, "val.csv"))
+    test  = pd.read_csv(os.path.join(path, "test.csv"))
+
+    train["split"] = "train"
+    val["split"]   = "val"
+    test["split"]  = "test"
+
+    train.to_csv(os.path.join(path, "train.csv"), index=False)
+    val.to_csv(os.path.join(path, "val.csv"), index=False)
+    test.to_csv(os.path.join(path, "test.csv"), index=False)
+
+def order_columns(path: str) -> None:
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val   = pd.read_csv(os.path.join(path, "val.csv"))
+    test  = pd.read_csv(os.path.join(path, "test.csv"))
+
+    column_order = ["entry", "split", "label", "receptor_seq", "ligand_seq", "receptor_path", "ligand_path"]
+    column_order_test = ["entry", "split", "label", "class", "receptor_seq", "ligand_seq", "receptor_path", "ligand_path"]
+
+    train = train[column_order]
+    val   = val[column_order]
+    test  = test[column_order_test]
+
+    train.to_csv(os.path.join(path, "train.csv"), index=False)
+    val.to_csv(os.path.join(path, "val.csv"), index=False)
+    test.to_csv(os.path.join(path, "test.csv"), index=False)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="different utilities for data processing")
     parser.add_argument('--function', type=int, required=True, help='Function to execute: 1 - add labels, 2 - add test classes, 3 - create fasta files')
     parser.add_argument('--path', type=str, help='Path to read from')
     parser.add_argument('--out_path', type=str, help='Path to save to')
+    parser.add_argument('--half_balance', action='store_true', help='Whether to use half balancing when resampling negatives')
     args = parser.parse_args()
 
     if args.function == 1:
@@ -160,3 +448,13 @@ if __name__ == "__main__":
         helper_create_fasta_file(args.path, args.out_path)
     elif args.function == 4:
         helper_remove_duplicate_interactions(args.path, args.out_path)
+    elif args.function == 5:
+        resample_negatives(args.path, args.half_balance)
+    elif args.function == 6:
+        add_split_column(args.path)
+    elif args.function == 7:
+        order_columns(args.path)
+    elif args.function == 8:
+        completely_balanced_splits(args.path, args.out_path)
+    else:
+        print("Invalid function selected.")
