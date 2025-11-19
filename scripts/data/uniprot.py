@@ -162,7 +162,7 @@ def create_uniq_uniprot_fasta(path: str, out_path: str):
 
     ids = {}
     for df in [train, val, test]:
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             rec_uniprot = row["entry"].split("--")[0].split("_")[-1]
             lig_uniprot = row["entry"].split("--")[1].split("_")[-1]
 
