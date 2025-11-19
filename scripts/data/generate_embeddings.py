@@ -160,6 +160,7 @@ def preprocess_pdb_content(pdb_path):
     return content
 
 def save_structure_embeddings(df, residue, out_dir):
+    sequence_missmatch = {}
     faulty = {}
     for _, row in df.iterrows():
         try:
@@ -189,10 +190,10 @@ def save_structure_embeddings(df, residue, out_dir):
             continue
         
         if rec_prot.sequence != row['receptor_seq']:
-            faulty[row['entry']] = f"Receptor sequence mismatch: expected {row['receptor_seq']}, got {rec_prot.sequence}"
+            sequence_missmatch[row["receptor_seq"]] = f"Receptor sequence mismatch: expected {row['receptor_seq']}, got {rec_prot.sequence}"
 
         if lig_prot.sequence != row['ligand_seq']:
-            faulty[row['entry']] = f"Ligand sequence mismatch: expected {row['ligand_seq']}, got {lig_prot.sequence}"
+            sequence_missmatch[row["ligand_seq"]] = f"Ligand sequence mismatch: expected {row['ligand_seq']}, got {lig_prot.sequence}"
 
         skip_rec = False
         skip_lig = False
@@ -271,6 +272,9 @@ def save_structure_embeddings(df, residue, out_dir):
     
     for entry, error in faulty.items():
         print(f"Entry {entry} skipped due to error: {error}")
+    
+    for seq, msg in sequence_missmatch.items():
+        print(f"Sequence mismatch for sequence {seq}: {msg}")
 
 
 if __name__ == "__main__":
