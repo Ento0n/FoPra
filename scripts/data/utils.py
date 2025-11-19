@@ -1,3 +1,4 @@
+import sys
 import pandas as pd
 import os
 import argparse
@@ -35,43 +36,69 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
     lig_weights = [lig_counter[s] for s in lig_seqs]
 
     # Add as many self interactions as possible (depends on how many sequences are not already self interacting in positives)
+    # Implemented for unique self interactions only (A-A once, B-B once, no duplicates)
     neg_records = []
     neg_set = set()
     if self_interactions:
-        self_interacting_df = df[df['receptor_seq'] == df['ligand_seq']]
-        n_self_interactions = len(self_interacting_df)
+        # extract the different sequences associated to a uniprot ID not in positives self interactions
+        uni_id_to_seqs = {}
+        self_interacting_uni_ids = set()
+        blacklist_uni_seqs = set()
+        for _, row in df.iterrows():
+            uni_rec = row['entry'].split('--')[0].split('_')[-1]
+            uni_lig = row['entry'].split('--')[1].split('_')[-1]
 
-        # sequences not self interacting
-        self_interacting_seqs = set(self_interacting_df['receptor_seq'])
-        all_seqs = rec_seqs + lig_seqs
-        seqs_non_self = [s for s in all_seqs if s not in self_interacting_seqs]
+            if uni_rec == uni_lig:
+                # Add to self interacting uniprot IDs and blacklist
+                self_interacting_uni_ids.add(uni_rec)
+                blacklist_uni_seqs.add(row["receptor_seq"])
+                blacklist_uni_seqs.add(row["ligand_seq"])
 
-        print(f"# of possible self interactions to add as negatives in split {split}: {len(seqs_non_self)}")
-        print(f"# of unique sequences in positive self interactions: {len(self_interacting_seqs)}")
+                # remove sequences from uni_id_to_seqs if already present, only receptor needed since same as ligand here. But both sequences matter!!
+                if uni_rec in uni_id_to_seqs:
+                    if row["receptor_seq"] in uni_id_to_seqs[uni_rec]:
+                        uni_id_to_seqs[uni_rec].remove(row["receptor_seq"])
+                    if row["ligand_seq"] in uni_id_to_seqs[uni_rec]:
+                        uni_id_to_seqs[uni_rec].remove(row["ligand_seq"])
 
-        if n_self_interactions < len(seqs_non_self):
-            seqs_non_self = seqs_non_self[:n_self_interactions]
-        
-        print(f"Adding {len(seqs_non_self)} self-interactions as negatives in split {split}.")
-        print(f"# of self interactions in positives: {n_self_interactions}\n")
-        
-        # up to now no duplicates are handled.....
-        for seq in seqs_non_self:
-            # extract entry for receptor (since receptor and ligand are the same here only 1 needed)
-            rec_entry_obj = df.loc[df['receptor_seq']==seq, 'entry']
-            lig_entry_obj = df.loc[df['ligand_seq']==seq, 'entry']
-            if not rec_entry_obj.empty:
-                identifier = rec_entry_obj.iat[0].split("--")[0]
-            elif not lig_entry_obj.empty:
-                identifier = lig_entry_obj.iat[0].split("--")[1]
-            else:
-                print(f"Warning: Could not find entry for self-interacting sequence {seq} in split {split}. Using 'unknown_entry' as placeholder.")
-                identifier = "unknown_entry"
+                # skip rest of loop
+                continue
             
+            # Add sequences to uniprot ID mapping
+            if row["receptor_seq"] not in blacklist_uni_seqs:
+                if uni_rec not in uni_id_to_seqs and row['receptor_seq'] not in blacklist_uni_seqs:
+                    uni_id_to_seqs[uni_rec] = set()
+                uni_id_to_seqs[uni_rec].add(row['receptor_seq'])
+
+            if row["ligand_seq"] not in blacklist_uni_seqs:
+                if uni_lig not in uni_id_to_seqs and row['ligand_seq'] not in blacklist_uni_seqs:
+                    uni_id_to_seqs[uni_lig] = set()
+                uni_id_to_seqs[uni_lig].add(row['ligand_seq'])
+        
+        # uniprot IDs not self interacting
+        non_self_interacting_uni_ids = set(uni_id_to_seqs.keys()) - self_interacting_uni_ids
+
+        print(f"# of unique uniprot IDs in positive self interactions: {len(self_interacting_uni_ids)}")
+        print(f"# of possible non-self interacting uniprot IDs to add as negatives in split {split}: {len(non_self_interacting_uni_ids)}")
+        print(f"Sanity check - intersection: {self_interacting_uni_ids.intersection(non_self_interacting_uni_ids)}")
+
+        # go through non self interacting uniprot IDs and add their sequences as self interactions
+        while len(neg_records) < min(len(non_self_interacting_uni_ids), len(self_interacting_uni_ids), n_samples):
+            uni_id = non_self_interacting_uni_ids.pop()
+            seqs = list(uni_id_to_seqs[uni_id])
+            seq1 = random.choice(seqs)
+            seq2 = random.choice(seqs)
+
             # create record with paths if available
             if path:
-                rec_path_obj = df.loc[df['receptor_seq']==seq, 'receptor_path']
-                lig_path_obj = df.loc[df['ligand_seq']==seq,   'ligand_path']
+                rec_path_obj = df.loc[df['receptor_seq']==seq1, 'receptor_path']
+                lig_path_obj = df.loc[df['ligand_seq']==seq2,   'ligand_path']
+                
+                # seq1 and seq2 can be set that above leads to 2 empty path objs, need to check both
+                if rec_path_obj.empty and lig_path_obj.empty:
+                    rec_path_obj = df.loc[df['receptor_seq']==seq2, 'receptor_path']
+                    lig_path_obj = df.loc[df['ligand_seq']==seq1,   'ligand_path']
+
                 if not rec_path_obj.empty:
                     rec_path = rec_path_obj.iat[0]
                     lig_path = rec_path_obj.iat[0]
@@ -79,38 +106,37 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
                     rec_path = lig_path_obj.iat[0]
                     lig_path = lig_path_obj.iat[0]
                 else:
-                    print(f"Warning: Could not find path for self-interacting sequence {seq} in split {split}. Paths will be set to None.")
+                    print(f"Warning: Could not find path for self-interacting sequence {seq1} or {seq2} in split {split}. Paths will be set to None.")
                     rec_path = None
                     lig_path = None
                 
                 neg_records.append({
-                    'entry': identifier + '--' + identifier,
+                    'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
                     'split': split,
-                    'receptor_seq': seq,
-                    'ligand_seq':  seq,
+                    'receptor_seq': seq1,
+                    'ligand_seq':  seq2,
                     'receptor_path': rec_path,
                     'ligand_path':  lig_path,
                     'label': 0
                 })
-
             else:
                 neg_records.append({
-                    'entry': identifier + '--' + identifier,
+                    'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
                     'split': split,
-                    'receptor_seq': seq,
-                    'ligand_seq':  seq,
+                    'receptor_seq': seq1,
+                    'ligand_seq':  seq2,
                     'label': 0
                 })
-
-            neg_set.add((seq, seq))
+            
+            neg_set.add((seq1, seq2))
 
             # reduce weights accordingly
-            if seq in rec_seqs:
-                rec_index = rec_seqs.index(seq)
+            if seq1 in rec_seqs:
+                rec_index = rec_seqs.index(seq1)
                 rec_weights[rec_index] = max(0, rec_weights[rec_index] - 1)
             
-            if seq in lig_seqs:
-                lig_index = lig_seqs.index(seq)
+            if seq2 in lig_seqs:
+                lig_index = lig_seqs.index(seq2)
                 lig_weights[lig_index] = max(0, lig_weights[lig_index] - 1)
 
     # sample not self interacting until n_samples is reached
@@ -118,10 +144,10 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
         rec_seq = random.choices(rec_seqs, weights=rec_weights, k=1)[0]
         lig_seq = random.choices(lig_seqs, weights=lig_weights, k=1)[0]
         
-        if (rec_seq, lig_seq) in positives:
+        if (rec_seq, lig_seq) in positives or (lig_seq, rec_seq) in positives:
             continue
             
-        if (rec_seq, lig_seq) in neg_set:
+        if (rec_seq, lig_seq) in neg_set or (lig_seq, rec_seq) in neg_set:
             continue
 
         if self_interactions:
@@ -432,6 +458,36 @@ def order_columns(path: str) -> None:
     val.to_csv(os.path.join(path, "val.csv"), index=False)
     test.to_csv(os.path.join(path, "test.csv"), index=False)
 
+def remove_too_short_seqs(path: str) -> None:
+    train = pd.read_csv(os.path.join(path, "train.csv"))
+    val   = pd.read_csv(os.path.join(path, "val.csv"))
+    test  = pd.read_csv(os.path.join(path, "test.csv"))
+
+    train = train[train["label"] == 1]
+    val = val[val["label"] == 1]
+    test = test[test["label"] == 1]
+
+    # remove everything smaller than 5 amino acids
+    train = train[(train["receptor_seq"].str.len() > 5) & (train["ligand_seq"].str.len() > 5)]
+    val = val[(val["receptor_seq"].str.len() > 5) & (val["ligand_seq"].str.len() > 5)]
+    test = test[(test["receptor_seq"].str.len() > 5) & (test["ligand_seq"].str.len() > 5)]
+
+    # sample negatives again
+    train_neg = sample_negatives(train, "train", len(train))
+    val_neg = sample_negatives(val, "val", len(val))
+    test_neg = sample_negatives(test, "test", len(test))
+
+    train = pd.concat([train, train_neg], ignore_index=True)
+    val = pd.concat([val, val_neg], ignore_index=True)
+    test = pd.concat([test, test_neg], ignore_index=True)
+
+    # add test classes right away
+    test = add_test_classes(df=test)
+
+    train.to_csv(os.path.join(path, "train.csv"), index=False)
+    val.to_csv(os.path.join(path, "val.csv"), index=False)
+    test.to_csv(os.path.join(path, "test.csv"), index=False)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="different utilities for data processing")
     parser.add_argument('--function', type=int, required=True, help='Function to execute: 1 - add labels, 2 - add test classes, 3 - create fasta files')
@@ -456,5 +512,7 @@ if __name__ == "__main__":
         order_columns(args.path)
     elif args.function == 8:
         completely_balanced_splits(args.path, args.out_path)
+    elif args.function == 9:
+        remove_too_short_seqs(args.path)
     else:
         print("Invalid function selected.")
