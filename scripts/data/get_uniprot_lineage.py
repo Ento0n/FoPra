@@ -3,7 +3,7 @@ import sys
 import requests
 
 def main():
-    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/uniprot"
+    path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/sunburst_data"
 
     species_file = os.path.join(path, "uniprot_species_distribution.tsv")
 

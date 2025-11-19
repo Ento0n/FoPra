@@ -118,34 +118,48 @@ def add_sequences_from_uniparc(uniparc_path: str, uniprot_path: str, species_pat
             extracted_info[uniprot_id] = (sequence, organism, organism_id)
     
     print(f"Adding {len(extracted_info)} sequences from uniparc to full_uniprot_sequences.fasta")
+
+    # get the counts for the uniprot ids from uniparc
+    uniq_uniprot_path = uniprot_path.replace("full_uniprot_sequences.fasta", "unique_uniprot_sequences.fasta")
+    uniid_to_count = {}
+    with open(uniq_uniprot_path, "r") as f:
+        for line in f:
+            if line.startswith(">"):
+                uid = line[1:].split("|")[0].strip()
+                count = int(line[1:].split("|")[1].strip().split("#=")[1].strip())
+                uniid_to_count[uid] = count
     
     # Create uniparc sequences fasta
     with open(uniprot_path, "a") as f:
         for uid, info in extracted_info.items():
-            seq, _, _ = info
-            f.write(f">{uid}\n")
+            seq, _, organism_id = info
+            f.write(f">{uid}|OX={organism_id}|#={uniid_to_count[uid]}\n")
             f.write(f"{seq}\n")
     
     # Update species file
-    species_counter_dict = {}
+    species_uniq_counter_dict = {}
+    species_total_counter_dict = {}
     with open(species_path, "r") as f:
         for line in f:
             if line.startswith("Species"):
                 continue
             
             parts = line.strip().split("\t")
-            species_counter_dict[parts[0] + "," + parts[1]] = int(parts[2])
+            species_uniq_counter_dict[parts[0] + "," + parts[1]] = int(parts[2])
+            species_total_counter_dict[parts[0] + "," + parts[1]] = int(parts[3])
     
-    species_counter = Counter(species_counter_dict)
+    species_uniq_counter = Counter(species_uniq_counter_dict)
+    species_total_counter = Counter(species_total_counter_dict)
     for uid, info in extracted_info.items():
         _, organism, organism_id = info
-        species_counter[organism + "," + organism_id] += 1
+        species_uniq_counter[organism + "," + organism_id] += 1
+        species_total_counter[organism + "," + organism_id] += uniid_to_count[uid]
     
     with open(species_path + ".new", "w") as f:
-        f.write("Species\tTax ID\tCount\n")
-        for info, count in species_counter.items():
+        f.write("Species\tTax ID\tCount\tTotal Count\n")
+        for info, count in species_uniq_counter.items():
             species, tax_id = info.split(",")
-            f.write(f"{species}\t{tax_id}\t{count}\n")
+            f.write(f"{species}\t{tax_id}\t{count}\t{species_total_counter[info]}\n")
 
 
 
@@ -171,11 +185,21 @@ def create_uniq_uniprot_fasta(path: str, out_path: str):
     
     print(f"Total unique uniprot ids: {len(ids)}")
 
+    # Count how often a uniprot ID appears
+    uid_counter = Counter()
+    df = pd.concat([train, val, test], ignore_index=True)
+    for _, row in df.iterrows():
+        rec_uniprot = row["entry"].split("--")[0].split("_")[-1]
+        lig_uniprot = row["entry"].split("--")[1].split("_")[-1]
+
+        uid_counter[rec_uniprot] += 1
+        uid_counter[lig_uniprot] += 1
+
     # write to fasta
     fasta = os.path.join(out_path, "unique_uniprot_sequences.fasta")
     with open(fasta, "w") as f:
         for uid, seq in ids.items():
-            f.write(f">{uid}\n{seq}\n")
+            f.write(f">{uid}|#={uid_counter[uid]}\n{seq}\n")
 
 
 
