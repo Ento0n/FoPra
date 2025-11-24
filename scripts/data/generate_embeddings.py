@@ -1,4 +1,13 @@
 import os
+
+# Set cache/config dirs before importing heavy libraries so they pick up writable locations.
+os.environ['PINDER_BASE_DIR'] = '/nfs/scratch/pinder'
+os.environ['MPLCONFIGDIR'] = '/nfs/scratch/pinder/negative_dataset'
+os.environ['HF_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
+os.environ['TRANSFORMERS_CACHE'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
+os.environ['TORCH_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache/torch'
+os.environ['XDG_CACHE_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache'
+
 import hashlib
 import torch
 import pandas as pd
@@ -11,11 +20,6 @@ import gc
 import argparse
 import re
 import tempfile
-
-os.environ['PINDER_BASE_DIR'] = '/nfs/scratch/pinder'
-os.environ['MPLCONFIGDIR'] = '/nfs/scratch/pinder/negative_dataset'
-os.environ['HF_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
-os.environ['TRANSFORMERS_CACHE'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
 
 
 # 2. Function to save per-sequence embeddings
@@ -285,48 +289,102 @@ if __name__ == "__main__":
     parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
     parser.add_argument('--out_path', type=str, default=None, required=True, help='Output path to save embeddings')
     parser.add_argument('--structure', action='store_true', help='Whether to generate structure-based embeddings instead of sequence-based')
+    parser.add_argument('--model', type=str, default='esm3', help='Model to use for embedding generation (default: esm3)')
 
     args = parser.parse_args()
 
-    # 1. Spin up the ESM client
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    login(token=args.token)
-    client = ESM3.from_pretrained(ESM3_OPEN_SMALL, device=device)
-
-    # 3. Generate embeddings for receptor and ligand sequences
-    print(f"Loading dataset from {args.path}...\n")
-    df = pd.concat([
-        pd.read_csv(os.path.join(args.path, "train.csv")),
-        pd.read_csv(os.path.join(args.path, "val.csv")),
-        pd.read_csv(os.path.join(args.path, "test.csv"))
-    ], ignore_index=True)
-
-    # Consider only sequences where label==1
-    df = df[df["label"] == 1]
-
-    if args.structure:
-        print(f"Saving structure&sequence-based embeddings to {args.out_path}...\n")
-        save_structure_embeddings(
-            df,
-            args.residue,
-            args.out_path
-        )
+    if args.residue:
+        print("Generating per-residue embeddings...\n")
     else:
-        # Only consider sequences where label==1
-        unique_rec = df['receptor_seq'].unique()
-        unique_lig = df['ligand_seq'].unique()
+        print("Generating mean embeddings...\n")
+
+    if args.model.lower() == 'esm3':
+        print("Generating embeddings using ESM-3 model...\n")
+        # 1. Spin up the ESM client
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        login(token=args.token)
+        client = ESM3.from_pretrained(ESM3_OPEN_SMALL, device=device)
+
+        # 3. Generate embeddings for receptor and ligand sequences
+        print(f"Loading dataset from {args.path}...\n")
+        df = pd.concat([
+            pd.read_csv(os.path.join(args.path, "train.csv")),
+            pd.read_csv(os.path.join(args.path, "val.csv")),
+            pd.read_csv(os.path.join(args.path, "test.csv"))
+        ], ignore_index=True)
+
+        # Consider only sequences where label==1
+        df = df[df["label"] == 1]
+
+        if args.structure:
+            print(f"Saving structure&sequence-based embeddings to {args.out_path}...\n")
+            save_structure_embeddings(
+                df,
+                args.residue,
+                args.out_path
+            )
+        else:
+            # Only consider sequences where label==1
+            unique_rec = df['receptor_seq'].unique()
+            unique_lig = df['ligand_seq'].unique()
+
+            print(f"Saving sequence embeddings to {args.out_path}...\n")
+
+            print("Generating embeddings for receptor sequences...\n")
+            save_seq_embeddings(
+                unique_rec,
+                args.residue,
+                args.out_path
+            )
+            print("Generating embeddings for ligand sequences...\n")
+            save_seq_embeddings(
+                unique_lig,
+                args.residue,
+                args.out_path
+            )
+    
+    elif args.model.lower() == 'esm2':
+        import esm
+
+        print("Saving sequence embeddings using ESM-2 model...\n")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        model, alphabet = esm.pretrained.esm2_t33_650M_UR50D()
+        model = model.to(device).eval()
+        batch_converter = alphabet.get_batch_converter()
+        target_layer = model.num_layers  # final layer
+
+        print(f"Loading dataset from {args.path}...\n")
+        df = pd.concat([
+            pd.read_csv(os.path.join(args.path, "train.csv")),
+            pd.read_csv(os.path.join(args.path, "val.csv")),
+            pd.read_csv(os.path.join(args.path, "test.csv"))
+        ], ignore_index=True)
+        df = df[df["label"] == 1]
+
+        def save_seq_embeddings_esm2(seqs, residue, out_dir):
+            os.makedirs(out_dir, exist_ok=True)
+
+            for seq in tqdm(seqs, desc="Sequences"):
+                key = hashlib.md5(seq.encode()).hexdigest()
+                path = os.path.join(out_dir, f"{key}.pt")
+                if os.path.exists(path):
+                    continue
+
+                batch = [("protein", seq)]
+                _, _, tokens = batch_converter(batch)
+                tokens = tokens.to(device)
+
+                with torch.no_grad():
+                    outputs = model(tokens, repr_layers=[target_layer], return_contacts=False)
+                    rep = outputs["representations"][target_layer][:, 1:-1, :]  # trim BOS/EOS
+                    embedding = rep.squeeze(0) if residue else rep.mean(1)
+
+                torch.save({"sequence": seq, "embedding": embedding.cpu()}, path)
 
         print(f"Saving sequence embeddings to {args.out_path}...\n")
-
-        print("Generating embeddings for receptor sequences...\n")
-        save_seq_embeddings(
-            unique_rec,
-            args.residue,
-            args.out_path
-        )
-        print("Generating embeddings for ligand sequences...\n")
-        save_seq_embeddings(
-            unique_lig,
-            args.residue,
-            args.out_path
-        )
+        save_seq_embeddings_esm2(df['receptor_seq'].unique(), args.residue, args.out_path)
+        save_seq_embeddings_esm2(df['ligand_seq'].unique(), args.residue, args.out_path)
+        
+    else:
+        raise ValueError(f"Model {args.model} not supported yet.")
