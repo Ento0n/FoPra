@@ -39,6 +39,8 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
     # Implemented for unique self interactions only (A-A once, B-B once, no duplicates)
     neg_records = []
     neg_set = set()
+    target_self_interactions = 0
+    i = 0
     if self_interactions:
         # extract the different sequences associated to a uniprot ID not in positives self interactions
         uni_id_to_seqs = {}
@@ -83,7 +85,9 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
         print(f"Sanity check - intersection: {self_interacting_uni_ids.intersection(non_self_interacting_uni_ids)}")
 
         # go through non self interacting uniprot IDs and add their sequences as self interactions
-        while len(neg_records) < min(len(non_self_interacting_uni_ids), len(self_interacting_uni_ids), n_samples):
+        target_self_interactions = min(len(non_self_interacting_uni_ids), len(self_interacting_uni_ids), n_samples)
+        print(f"Sampling {target_self_interactions} self-interacting negative samples for split {split}...")
+        while len(neg_records) < target_self_interactions:
             uni_id = non_self_interacting_uni_ids.pop()
             seqs = list(uni_id_to_seqs[uni_id])
             seq1 = random.choice(seqs)
@@ -110,6 +114,7 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
                     rec_path = None
                     lig_path = None
                 
+                i += 1
                 neg_records.append({
                     'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
                     'split': split,
@@ -120,6 +125,7 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
                     'label': 0
                 })
             else:
+                i += 1
                 neg_records.append({
                     'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
                     'split': split,
@@ -138,8 +144,11 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
             if seq2 in lig_seqs:
                 lig_index = lig_seqs.index(seq2)
                 lig_weights[lig_index] = max(0, lig_weights[lig_index] - 1)
+    
+    print(f"Counter i is {i}, expected {target_self_interactions}")
 
     # sample not self interacting until n_samples is reached
+    print(f"Sampling remaining {n_samples - len(neg_records)} negative samples for split {split}...\n")
     while len(neg_records) < n_samples:
         rec_seq = random.choices(rec_seqs, weights=rec_weights, k=1)[0]
         lig_seq = random.choices(lig_seqs, weights=lig_weights, k=1)[0]
@@ -218,75 +227,48 @@ def completely_balanced_splits(path: str, out_path: str):
     val = pd.read_csv(os.path.join(path, "val.csv"))
     test = pd.read_csv(os.path.join(path, "test.csv"))
 
-    print(f"Creating completely balanced splits using splits from: {path}\n")
+    print(f"Original splits from: {path}\n")
 
-    # consider only positive samples for deleaking
+    # Only consider positive samples for deleaking
     train = train[train["label"] == 1]
     val = val[val["label"] == 1]
     test = test[test["label"] == 1]
 
-    # train, val and test should have as many self interacting in positive as in negative -> remove from positive set
-    train_self = train[train["receptor_seq"] == train["ligand_seq"]]
-    train_nonself = train[train["receptor_seq"] != train["ligand_seq"]]
-    train_self_seqs_uniq = set(train_self["receptor_seq"].unique())
-    train_nonself_seqs_uniq = set(list(train_nonself["receptor_seq"].unique()) + list(train_nonself["ligand_seq"].unique()))
-    print(f"Train has {len(train_self_seqs_uniq)} self interacting sequences and {len(train_nonself_seqs_uniq)} non-self interacting sequences.")
-    if len(train_self_seqs_uniq) > len(train_nonself_seqs_uniq):
-        #sample len(nonself_seqs_uniq) self interacting sequences
-        sampled_seqs = random.sample(list(train_self_seqs_uniq), k=len(train_nonself_seqs_uniq))
-        train_self = train_self[train_self["receptor_seq"].isin(sampled_seqs)]
-        train = pd.concat([train_self, train_nonself], ignore_index=True)
-        print(f"Train should have {len(train_nonself_seqs_uniq)} self interacting sequences to be balanced.")
-        print(f"Now train has {len(train[train['receptor_seq'] == train['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+    def remove_excess_self_interactions(df: pd.DataFrame, split_name: str) -> pd.DataFrame:
+        uni_rec = df["entry"].str.split('--').str[0].str.split('_').str[-1]
+        uni_lig = df["entry"].str.split('--').str[1].str.split('_').str[-1]
 
-    # repeat for val set
-    val_self = val[val["receptor_seq"] == val["ligand_seq"]]
-    val_nonself = val[val["receptor_seq"] != val["ligand_seq"]]
-    val_self_seqs_uniq = set(val_self["receptor_seq"].unique())
-    val_nonself_seqs_uniq = set(list(val_nonself["receptor_seq"].unique()) + list(val_nonself["ligand_seq"].unique()))
+        self_interacting = df[uni_rec == uni_lig]
 
-    print(f"Val has {len(val_self_seqs_uniq)} self interacting sequences and {len(val_nonself_seqs_uniq)} non-self interacting sequences.")
-    if len(val_self_seqs_uniq) > len(val_nonself_seqs_uniq):
-        #sample len(nonself_seqs_uniq) self interacting sequences
-        sampled_seqs = random.sample(list(val_self_seqs_uniq), k=len(val_nonself_seqs_uniq))
-        val_self = val_self[val_self["receptor_seq"].isin(sampled_seqs)]
-        val = pd.concat([val_self, val_nonself], ignore_index=True)
-        print(f"Val should have {len(val_nonself_seqs_uniq)} self interacting sequences to be balanced.")
-        print(f"Now val has {len(val[val['receptor_seq'] == val['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+        uni_ids_self = set(uni_rec[uni_rec == uni_lig].unique())
+        uni_ids_nonself = set(uni_rec).union(set(uni_lig)) - uni_ids_self
 
+        if len(uni_ids_self) > len(uni_ids_nonself):
+            print(f"{split_name} has {len(uni_ids_self)} self interacting uniprot IDs and {len(uni_ids_nonself)} non-self interacting uniprot IDs.")
+            print(f"Sampling {len(uni_ids_nonself)} self interacting uniprot IDs to balance.")
+            sampled_uni_ids = random.sample(list(uni_ids_self), k=len(uni_ids_nonself))
+            self_interacting = self_interacting[uni_rec.isin(sampled_uni_ids)]
+            df = pd.concat([self_interacting, df[uni_rec != uni_lig]], ignore_index=True)
+            print(f"Now {split_name} has {len(uni_ids_nonself)} self interacting uniprot IDs in positive.\n")
+        
+        return df
 
-    # repeat for test set
-    test_self = test[test["receptor_seq"] == test["ligand_seq"]]
-    test_nonself = test[test["receptor_seq"] != test["ligand_seq"]]
-    test_self_seqs_uniq = set(test_self["receptor_seq"].unique())
-    test_nonself_seqs_uniq = set(list(test_nonself["receptor_seq"].unique()) + list(test_nonself["ligand_seq"].unique()))
-    
+    train = remove_excess_self_interactions(train, "Train")
+    val = remove_excess_self_interactions(val, "Val")
+    test = remove_excess_self_interactions(test, "Test")
 
-    print(f"Test has {len(test_self_seqs_uniq)} self interacting sequences and {len(test_nonself_seqs_uniq)} non-self interacting sequences.")
-    if len(test_self_seqs_uniq) > len(test_nonself_seqs_uniq):
-        #sample len(nonself_seqs_uniq) self interacting sequences
-        sampled_seqs = random.sample(list(test_self_seqs_uniq), k=len(test_nonself_seqs_uniq))
-        test_self = test_self[test_self["receptor_seq"].isin(sampled_seqs)]
-        test = pd.concat([test_self, test_nonself], ignore_index=True)
-        print(f"Test should have {len(test_nonself_seqs_uniq)} self interacting sequences to be balanced.")
-        print(f"Now test has {len(test[test['receptor_seq'] == test['ligand_seq']]['receptor_seq'].unique())} self interacting sequences.\n")
+    # resample negatives
+    train_neg = sample_negatives(train, "train", len(train), self_interactions=True)
+    val_neg = sample_negatives(val, "val", len(val), self_interactions=True)
+    test_neg = sample_negatives(test, "test", len(test), self_interactions=True)
 
-    # new line for nicer stdout
-    print("\n")
+    train = pd.concat([train, train_neg], ignore_index=True)
+    val = pd.concat([val, val_neg], ignore_index=True)
+    test = pd.concat([test, test_neg], ignore_index=True)
 
-    # sample negatives for val and test
-    neg_val = sample_negatives(val, split="val", n_samples=len(val), self_interactions=True)
-    neg_test = sample_negatives(test, split="test", n_samples=len(test), self_interactions=True)
-    neg_train = sample_negatives(train, split="train", n_samples=len(train), self_interactions=True)
-
-    val = pd.concat([val, neg_val], ignore_index=True)
-    test = pd.concat([test, neg_test], ignore_index=True)
-    train = pd.concat([train, neg_train], ignore_index=True)
-
-    # add test classes
+    # add test classes right away
     test = add_test_classes(df=test)
 
-    # save splits
     train.to_csv(os.path.join(out_path, "train.csv"), index=False)
     val.to_csv(os.path.join(out_path, "val.csv"), index=False)
     test.to_csv(os.path.join(out_path, "test.csv"), index=False)
