@@ -27,8 +27,6 @@ class baseline2d(nn.Module):
         mat = torch.einsum("bih,bjh->bijh", rec_hid, lig_hid) # Outer product over h dimensions
         # Shape: (B, L, L, H) where B is batch size, L is length of receptor and ligand sequences (Can be different) and H is hidden dimension
 
-        mat = torch.tanh(mat)  # bring values to [-1, 1] values are crazy high otherwise
-
         mat = mat.permute(0, 3, 1, 2) # [B, H, L, L], "Channel" is hidden dimension and must be at 1
 
         mat = self.conv(mat) # Apply convolution
@@ -38,8 +36,7 @@ class baseline2d(nn.Module):
         max = torch.amax(mat, dim=(2, 3)) # Max over the pooled output
         # max is a scalar in [0,1] with size [B, 1]
 
-        logit = torch.sigmoid(max)
-        logit = logit.view(-1) # Flatten to 1D tensor
+        logit = max.squeeze(-1) # Flatten to 1D tensor
         # logit is a scalar in [0,1] with size [B]
 
         return logit

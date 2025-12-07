@@ -52,7 +52,7 @@ class SequencePairDatasetWithClasses(Dataset):
             'class': row['class']
         }
 
-def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wand_mode="online", epochs=5, model_name="linearFC", batch_size=4):
+def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wand_mode="online", epochs=5, model_name="linearFC", batch_size=4, judith_test_csv=None):
     #################__Torch device__################
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -91,6 +91,10 @@ def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kerne
     val_dataset   = SequencePairDataset(val_df)
     test_dataset  = SequencePairDatasetWithClasses(test_df)
 
+    if judith_test_csv is not None:
+        judith_test_df = pd.read_csv(judith_test_csv)
+        judith_test_dataset = SequencePairDataset(judith_test_df)
+
     # Compute fixed global pad lengths for one-hot case to keep model input size constant
     pad_rec_len = None
     pad_lig_len = None
@@ -101,8 +105,17 @@ def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kerne
         lig_max_train = train_df["ligand_seq"].str.len().max()
         lig_max_val   = val_df["ligand_seq"].str.len().max()
         lig_max_test  = test_df["ligand_seq"].str.len().max()
-        pad_rec_len = int(max(rec_max_train, rec_max_val, rec_max_test))
-        pad_lig_len = int(max(lig_max_train, lig_max_val, lig_max_test))
+
+        if judith_test_csv is not None:
+            judith_rec_max_test = judith_test_df["receptor_seq"].str.len().max()
+            judith_lig_max_test = judith_test_df["ligand_seq"].str.len().max()
+        else:
+            # fallback to 0 if no judith test set provided
+            judith_rec_max_test = 0
+            judith_lig_max_test = 0
+
+        pad_rec_len = int(max(rec_max_train, rec_max_val, rec_max_test, judith_rec_max_test))
+        pad_lig_len = int(max(lig_max_train, lig_max_val, lig_max_test, judith_lig_max_test))
         print(f"Using fixed one-hot pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}\n")
 
     collate = partial(collate_fn, test=False, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
@@ -112,7 +125,12 @@ def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kerne
     val_loader   = DataLoader(val_dataset,   batch_size=run.config.batch_size,               collate_fn=collate)
     test_loader  = DataLoader(test_dataset,  batch_size=run.config.batch_size,               collate_fn=collate_test)
 
-    return device, run, train_loader, val_loader, test_loader
+    if judith_test_csv is not None:
+        judith_test_loader  = DataLoader(judith_test_dataset,  batch_size=run.config.batch_size,               collate_fn=collate)
+    else:
+        judith_test_loader = None
+
+    return device, run, train_loader, val_loader, test_loader, judith_test_loader
 
 def aa_one_hot(seq: str) -> torch.Tensor:
     """
@@ -139,18 +157,37 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
     ligs = []
 
     if not one_hot:
+        flag = False
         for b in batch:
             # generate MD5 key and retrieve embeddings
             # receptor
             key = hashlib.md5(b["receptor_seq"].encode()).hexdigest()
-            recs.append(torch.load(
-                os.path.join(cache_dir, f"{key}.pt")
-            )["embedding"])
+            if os.path.exists(os.path.join(cache_dir, f"{key}.pt")):
+                recs.append(torch.load(
+                    os.path.join(cache_dir, f"{key}.pt")
+                )["embedding"].squeeze(0))  # remove batch dim
+            else:
+                print(f"Embedding for receptor sequence with key {key} not found in cache, but continue. Seq: {b['receptor_seq']}")
+                flag = True
+                continue
+
             # ligand
             key = hashlib.md5(b["ligand_seq"].encode()).hexdigest()
-            ligs.append(torch.load(
-                os.path.join(cache_dir, f"{key}.pt")
-            )["embedding"])
+            if os.path.exists(os.path.join(cache_dir, f"{key}.pt")):
+                ligs.append(torch.load(
+                    os.path.join(cache_dir, f"{key}.pt")
+                )["embedding"].squeeze(0))  # remove batch dim
+            else:
+                print(f"Embedding for ligand sequence with key {key} not found in cache, but continue. Seq: {b['ligand_seq']}")
+                flag = True
+                continue
+        
+        # if any embedding was missing, return None to skip this batch
+        if flag:
+            if test:
+                return None, None, None, None
+            else:
+                return None, None, None
 
         # pad sequences to the maximum length in the batch, consider kernel size
         if residue:
@@ -193,8 +230,6 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
                 classes.append(2)
             elif cls == "undefined":
                 classes.append(3)
-            elif cls == "uniprot-self":
-                classes.append(4)
         classes = torch.tensor(classes, dtype=torch.long)
         
         return recs, ligs, labels, classes
@@ -214,13 +249,20 @@ def setup_model(train_loader, device, run, residue, model_name):
 
     if model_name == "LinearFC":
         model = LinearFC(embed_dim).to(device)
+    elif model_name == "baseline2d":
+        from models.baseline_fc_conv import baseline2d
+        # baseline2d applies the same projector to receptor and ligand separately,
+        # so it should see the dimensionality of a single embedding (not the concatenated pair).
+        conv_in_dim = rec_emb_sample.size(2) if residue else rec_emb_sample.size(1)
+        model = baseline2d(conv_in_dim).to(device)
+
+    print("Model architecture:\n", model, "\n")
 
     
     # Initialize optimizer and loss function
     optimizer = optim.Adam(model.parameters(), lr=run.config.learning_rate)
 
     # Binary Cross Entropy Loss for binary classification
-    # criterion = nn.BCELoss()
     criterion = nn.BCEWithLogitsLoss()  # more stable than BCELoss with separate sigmoid
 
     # Give model to WandB
@@ -240,11 +282,17 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
         model.train()
         total_loss = 0.0
         for idx, (rec_emb, lig_emb, labels) in enumerate(train_loader):
+            if rec_emb is None or lig_emb is None or labels is None:
+                # skip this batch due to missing embeddings
+                continue
+
             # early stopping for debugging with limited training samples
             if training_limit and idx >= training_limit:
                 break
 
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
+            print(rec_emb.shape, lig_emb.shape)
+            sys.exit()
             logits = model(rec_emb, lig_emb)
 
             labels = labels.float()  # Convert labels to float for BCELoss
@@ -266,6 +314,10 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
         val_loss = 0.0
         with torch.no_grad():
             for rec_emb, lig_emb, labels in val_loader:
+                if rec_emb is None or lig_emb is None or labels is None:
+                    # skip this batch due to missing embeddings
+                    continue
+
                 rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
                 logits = model(rec_emb, lig_emb)
 
@@ -292,25 +344,37 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
 
 
 def test(device, model, test_loader):
-    # 5. Test the model
     model.eval()
+
+    # general
     correct, total = 0, 0
     neg, pos = 0, 0
+
+    # self
     correct_self, total_self = 0, 0
     self_preds, self_labels = [], []
     self_neg, self_pos = 0, 0
-    correct_uni_self, total_uni_self = 0, 0
-    uni_self_preds, uni_self_labels = [], []
-    uni_self_neg, uni_self_pos = 0, 0
+
+    # non-self
     correct_nonself, total_nonself = 0, 0
     nonself_preds, nonself_labels = [], []
     nonself_neg, nonself_pos = 0, 0
+
+    # undefined
     correct_undefined, total_undefined = 0, 0
     undefined_preds, undefined_labels = [], []
     undefined_neg, undefined_pos = 0, 0
+
+    # all
     all_probs, all_preds, all_labels, all_classes = [], [], [], []
+    falsy_idxs = []
     with torch.no_grad():
-        for rec_emb, lig_emb, labels, classes in test_loader:
+        for idx, (rec_emb, lig_emb, labels, classes) in enumerate(test_loader):
+            if rec_emb is None or lig_emb is None or labels is None:
+                # skip this batch due to missing embeddings
+                falsy_idxs.extend([idx*4, idx*4+1, idx*4+2, idx*4+3])  # approximate batch size of 4
+                continue
+
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
 
             labels = labels.float()  # Convert labels to float for BCELoss
@@ -338,14 +402,6 @@ def test(device, model, test_loader):
             self_labels.extend(labels[classes == 1].cpu().numpy())
             self_neg += (labels[classes == 1] == 0).sum().item()
             self_pos += (labels[classes == 1] == 1).sum().item()
-
-            # UniProt self
-            correct_uni_self += ((preds == labels) & (classes == 4)).sum().item()
-            total_uni_self += (classes == 4).sum().item()
-            uni_self_preds.extend(preds[classes == 4].cpu().numpy())
-            uni_self_labels.extend(labels[classes == 4].cpu().numpy())
-            uni_self_neg += (labels[classes == 4] == 0).sum().item()
-            uni_self_pos += (labels[classes == 4] == 1).sum().item()
 
             # non-self
             correct_nonself += ((preds == labels) & (classes == 2)).sum().item()
@@ -380,13 +436,6 @@ def test(device, model, test_loader):
     else:
         print("No samples in self class.\n")
 
-    if total_uni_self > 0:
-        print(f"UniProt-self-interaction test accuracy: {correct_uni_self/total_uni_self*100:.2f}% ({total_uni_self} samples)")
-        print(f"UniProt-self negative samples: {uni_self_neg}, UniProt-self positive samples: {uni_self_pos}")
-        print(f"Confusion Matrix:\n{confusion_matrix(uni_self_labels, uni_self_preds, labels=[0,1])}\n")
-    else:
-        print("No samples in UniProt-self class.\n")
-
     if total_nonself > 0:
         print(f"Non-self-interaction test accuracy: {correct_nonself/total_nonself*100:.2f}% ({total_nonself} samples)")
         print(f"Non-self negative samples: {nonself_neg}, Non-self positive samples: {nonself_pos}")
@@ -404,7 +453,53 @@ def test(device, model, test_loader):
     all_probs = np.round(np.array(all_probs, dtype=np.float32), 3).tolist()
     all_probs = [round(x, 3) for x in all_probs]
 
-    return all_probs,all_preds, all_labels, all_classes
+    return all_probs,all_preds, all_labels, all_classes, falsy_idxs
+
+def test_judith_gold(device, model, judith_test_loader):
+    print("Testing on Judith Gold Standard dataset...\n")
+    model.eval()
+
+    correct, total = 0, 0
+    neg, pos = 0, 0
+
+    with torch.no_grad():
+        all_probs, all_preds, all_labels = [], [], []
+        falsy_idxs = []
+        for idx, (rec_emb, lig_emb, labels) in enumerate(judith_test_loader):
+            if rec_emb is None or lig_emb is None or labels is None:
+                # skip this batch due to missing embeddings
+                falsy_idxs.extend([idx*4, idx*4+1, idx*4+2, idx*4+3])  # approximate batch size of 4
+                continue
+
+            rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
+
+            labels = labels.float()  # Convert labels to float for BCELoss
+
+            logits = model(rec_emb, lig_emb)
+
+            # Accuracy
+            probs = torch.sigmoid(logits)
+            preds = (probs > 0.5).float()
+
+            # general
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+            neg += (labels == 0).sum().item()
+            pos += (labels == 1).sum().item()
+
+            # Collect all probs, preds and labels for confusion matrix
+            all_probs.extend(probs.cpu().numpy())
+            all_preds.extend(preds.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+    
+    all_probs = np.round(np.array(all_probs, dtype=np.float32), 3).tolist()
+    all_probs = [round(x, 3) for x in all_probs]
+
+    print(f"Judith Gold Standard test accuracy: {correct/total*100:.2f}% ({total} samples)")
+    print(f"Total negative samples: {neg}, Total positive samples: {pos}")
+    print(f"Confusion Matrix:\n{confusion_matrix(all_labels, all_preds, labels=[0,1])}\n")
+
+    return all_probs, all_preds, all_labels, falsy_idxs
 
 def handle_random_forest(train_csv, test_csv):
     from sklearn.ensemble import RandomForestClassifier
@@ -560,6 +655,10 @@ def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
 
     with torch.no_grad():
         for rec_emb, lig_emb, labels in test_loader:
+            if rec_emb is None or lig_emb is None or labels is None:
+                # skip this batch due to missing embeddings
+                continue
+
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device).float()
             if d_rec is None:
                 d_rec = rec_emb.size(1)
@@ -678,14 +777,12 @@ def main():
     parser.add_argument('--model', type=str, required=True, help='Model architecture to use')
     parser.add_argument('--random_forest', action='store_true', help='If set, run Random Forest classifier instead of NN')
     parser.add_argument('--lrp', action='store_true', help='If set, perform LRP analysis after testing')
-    parser.add_argument('--judith_test', action='store_true', help='If set, use Judith gold standard test set')
+    parser.add_argument('--judith_test', type=str, help='If set, use Judith gold standard test set')
     parser.add_argument('--limit_training', type=int, default=None, help='Limit the number of training samples (for quick tests)')
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--residue', action='store_true', help='Use residue-level embeddings instead of mean embeddings')
     group.add_argument('--one_hot', action='store_true', help='Use one-hot encoding instead of embeddings')
-
-
 
     args = parser.parse_args()
 
@@ -717,11 +814,6 @@ def main():
     val_csv = os.path.join(args.path, "val.csv")
     test_csv = os.path.join(args.path, "test.csv")
 
-    # set up judith test set if specified
-    if args.judith_test:
-        test_csv = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/judith_gold_standard/test_pinder.csv"
-        print(f"Using Judith test set at: {test_csv}")
-
     # !!!!arguments not sure what will happen with in the future!!!!
     kernel_size = 2  # Default kernel size, can be adjusted
     wandb_mode = "disabled"  # Change to "online" to enable WandB logging, "disabled" to disable it
@@ -737,33 +829,54 @@ def main():
         args.limit_training = args.limit_training // batch_size
 
     # PIPELINE
-    device, run, train_loader, val_loader, test_loader = setup(args.path, args.cache_dir, train_csv, val_csv, test_csv, args.residue, args.one_hot, kernel_size, wandb_mode, args.epochs, args.model, batch_size)
+    device, run, train_loader, val_loader, test_loader, judith_test_loader = setup(args.path, args.cache_dir, train_csv, val_csv, test_csv, args.residue, args.one_hot, kernel_size, wandb_mode, args.epochs, args.model, batch_size, args.judith_test)
     model, optimizer, criterion = setup_model(train_loader, device, run, args.residue, args.model)
     train(device, run, model, optimizer, criterion, train_loader, val_loader, args.limit_training)
-    all_probs, all_preds, all_labels, all_classes = test(device, model, test_loader)
+    all_probs, all_preds, all_labels, all_classes, falsy_idxs = test(device, model, test_loader)
 
     # Save predictions to CSV file
-    encoding = "residue" if args.residue else "mean"
-    if encoding == "mean":
-        if "ESM3" in args.cache_dir:
-            encoding = "mean_ESM3"
-        elif "ESM2" in args.cache_dir:
-            encoding = "mean_ESM2"
-        if "sequence_structure" in args.cache_dir:
-            encoding += "_structure"
-    if encoding == "residue":
-        if "ESM3" in args.cache_dir:
-            encoding = "residue_ESM3"
-        elif "ESM2" in args.cache_dir:
-            encoding = "residue_ESM2"
-        if "sequence_structure" in args.cache_dir:
-            encoding += "_structure"
+    if not args.one_hot:
+        encoding = "residue" if args.residue else "mean"
+        if encoding == "mean":
+            if "ESM3" in args.cache_dir:
+                encoding = "mean_ESM3"
+            elif "ESM2" in args.cache_dir:
+                encoding = "mean_ESM2"
+            if "sequence_structure" in args.cache_dir:
+                encoding += "_structure"
+        if encoding == "residue":
+            if "ESM3" in args.cache_dir:
+                encoding = "residue_ESM3"
+            elif "ESM2" in args.cache_dir:
+                encoding = "residue_ESM2"
+            if "sequence_structure" in args.cache_dir:
+                encoding += "_structure"
     encoding = "one_hot" if args.one_hot else encoding
     test_df = pd.read_csv(os.path.join(args.path, "test.csv"))
     with open(os.path.join(args.path, f"test_predictions_{args.model}_{encoding}.txt"), "w") as f:
         f.write("entry,probability,prediction,label,class,model_name,time_stamp\n")
+        falsies = 0
         for idx, row in test_df.iterrows():
-            f.write(f"{row['entry']},{all_probs[idx]},{all_preds[idx]},{all_labels[idx]},{all_classes[idx]},{args.model},{datetime.now().isoformat(timespec='minutes')}\n")
+            if idx in falsy_idxs:
+                f.write("FALSY!!!!!!!!!!!!!!!\n")
+                falsies += 1
+                continue  # skip entries with missing embeddings
+            f.write(f"{row['entry']},{all_probs[idx-falsies]},{all_preds[idx-falsies]},{all_labels[idx-falsies]},{all_classes[idx-falsies]},{args.model},{datetime.now().isoformat(timespec='minutes')}\n")
+
+    # test on judith gold standard if specified
+    if args.judith_test:
+        all_probs, all_preds, all_labels, falsy_idxs = test_judith_gold(device, model, judith_test_loader)
+
+        with open(os.path.join(args.path, f"judith_gold_standard_predictions_{args.model}_{encoding}.txt"), "w") as f:
+            f.write("rec_uniprot,lig_uniprot,probability,prediction,label,model_name,time_stamp\n")
+
+            falsies = 0
+            for idx, row in pd.read_csv(args.judith_test).iterrows():
+                if idx in falsy_idxs:
+                    f.write("FALSY!!!!!!!!!!!!!!!\n")
+                    falsies += 1
+                    continue  # skip entries with missing embeddings
+                f.write(f"{row['receptor_uniprot']},{row['ligand_uniprot']},{all_probs[idx-falsies]},{all_preds[idx-falsies]},{all_labels[idx-falsies]},{args.model},{datetime.now().isoformat(timespec='minutes')}\n")
 
     # LRP analysis if specified
     if args.lrp:
