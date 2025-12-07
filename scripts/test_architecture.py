@@ -251,12 +251,7 @@ def setup_model(train_loader, device, run, residue, model_name):
         model = LinearFC(embed_dim).to(device)
     elif model_name == "baseline2d":
         from models.baseline_fc_conv import baseline2d
-        # baseline2d applies the same projector to receptor and ligand separately,
-        # so it should see the dimensionality of a single embedding (not the concatenated pair).
-        conv_in_dim = rec_emb_sample.size(2) if residue else rec_emb_sample.size(1)
-        model = baseline2d(conv_in_dim).to(device)
-
-    print("Model architecture:\n", model, "\n")
+        model = baseline2d(embed_dim).to(device)
 
     
     # Initialize optimizer and loss function
@@ -291,8 +286,6 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
                 break
 
             rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
-            print(rec_emb.shape, lig_emb.shape)
-            sys.exit()
             logits = model(rec_emb, lig_emb)
 
             labels = labels.float()  # Convert labels to float for BCELoss
