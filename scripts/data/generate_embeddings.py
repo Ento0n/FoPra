@@ -1,12 +1,12 @@
 import os
 
 # Set cache/config dirs before importing heavy libraries so they pick up writable locations.
-os.environ['PINDER_BASE_DIR'] = '/nfs/scratch/pinder'
-os.environ['MPLCONFIGDIR'] = '/nfs/scratch/pinder/negative_dataset'
+# os.environ['PINDER_BASE_DIR'] = '/nfs/scratch/pinder'
+# os.environ['MPLCONFIGDIR'] = '/nfs/scratch/pinder/negative_dataset'
 os.environ['HF_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
 os.environ['TRANSFORMERS_CACHE'] = '/nfs/scratch/pinder/negative_dataset/cache/huggingface'
-os.environ['TORCH_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache/torch'
-os.environ['XDG_CACHE_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache'
+# os.environ['TORCH_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache/torch'
+# os.environ['XDG_CACHE_HOME'] = '/nfs/scratch/pinder/negative_dataset/cache'
 
 import hashlib
 import torch
@@ -217,8 +217,8 @@ def save_structure_embeddings(df, residue, out_dir):
             continue
 
         # skip already‐saved ones
-        rec_key = hashlib.md5(rec_prot.sequence.encode()).hexdigest()
-        lig_key = hashlib.md5(lig_prot.sequence.encode()).hexdigest()
+        rec_key = hashlib.md5(row["receptor_seq"].encode()).hexdigest()  # Use pinder sequences to avoid Pipeline not finding it
+        lig_key = hashlib.md5(row["ligand_seq"].encode()).hexdigest()  # Use pinder sequences to avoid Pipeline not finding it
         rec_path = os.path.join(out_dir, f"{rec_key}.pt")
         lig_path = os.path.join(out_dir, f"{lig_key}.pt")
         lig_exists = os.path.exists(lig_path)
@@ -286,12 +286,21 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate Embeddings for Protein information")
     parser.add_argument('--token', type=str, default=None, required=True, help='Token for huggingface login')
     parser.add_argument('--residue', action='store_true', help='Whether to generate per-residue embeddings (default is mean embeddings)')
-    parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
+    parser.add_argument('--path', type=str, default=None, help='Path to the dataset CSV folder')
+    parser.add_argument('--file_path', type=str, default=None, help='Path to a single CSV file (overrides --path if provided)')
     parser.add_argument('--out_path', type=str, default=None, required=True, help='Output path to save embeddings')
     parser.add_argument('--structure', action='store_true', help='Whether to generate structure-based embeddings instead of sequence-based')
     parser.add_argument('--model', type=str, default='esm3', help='Model to use for embedding generation (default: esm3)')
 
     args = parser.parse_args()
+
+    if not args.path and not args.file_path:
+        raise ValueError("Either --path or --file_path must be provided.")
+    
+    if args.path:
+        print(f"Loading dataset from {args.path}...\n")
+    else:
+        print(f"Loading dataset from {args.file_path}...\n")
 
     if args.residue:
         print("Generating per-residue embeddings...\n")
@@ -306,12 +315,16 @@ if __name__ == "__main__":
         client = ESM3.from_pretrained(ESM3_OPEN_SMALL, device=device)
 
         # 3. Generate embeddings for receptor and ligand sequences
-        print(f"Loading dataset from {args.path}...\n")
-        df = pd.concat([
-            pd.read_csv(os.path.join(args.path, "train.csv")),
-            pd.read_csv(os.path.join(args.path, "val.csv")),
-            pd.read_csv(os.path.join(args.path, "test.csv"))
-        ], ignore_index=True)
+        if args.path:
+            print(f"Loading dataset from {args.path}...\n")
+            df = pd.concat([
+                pd.read_csv(os.path.join(args.path, "train.csv")),
+                pd.read_csv(os.path.join(args.path, "val.csv")),
+                pd.read_csv(os.path.join(args.path, "test.csv"))
+            ], ignore_index=True)
+        elif args.file_path:
+            print(f"Loading dataset from {args.file_path}...\n")
+            df = pd.read_csv(args.file_path)
 
         # Consider only sequences where label==1
         df = df[df["label"] == 1]
@@ -354,13 +367,19 @@ if __name__ == "__main__":
         batch_converter = alphabet.get_batch_converter()
         target_layer = model.num_layers  # final layer
 
-        print(f"Loading dataset from {args.path}...\n")
-        df = pd.concat([
-            pd.read_csv(os.path.join(args.path, "train.csv")),
-            pd.read_csv(os.path.join(args.path, "val.csv")),
-            pd.read_csv(os.path.join(args.path, "test.csv"))
-        ], ignore_index=True)
-        df = df[df["label"] == 1]
+        if args.path:
+            print(f"Loading dataset from {args.path}...\n")
+            df = pd.concat([
+                pd.read_csv(os.path.join(args.path, "train.csv")),
+                pd.read_csv(os.path.join(args.path, "val.csv")),
+                pd.read_csv(os.path.join(args.path, "test.csv"))
+            ], ignore_index=True)
+        elif args.file_path:
+            print(f"Loading dataset from {args.file_path}...\n")
+            df = pd.read_csv(args.file_path)
+
+        # This fails for Judith's file since some sequences are only in negative and not in positive
+        # df = df[df["label"] == 1]
 
         def save_seq_embeddings_esm2(seqs, residue, out_dir):
             os.makedirs(out_dir, exist_ok=True)
