@@ -304,22 +304,24 @@ def add_test_classes(path: str = None, df: pd.DataFrame = None) -> None:
         raise ValueError("Unexpected error in input parameters.")
 
     # add self-interaction class
-    test_df["class"] = test_df.apply(lambda row: "self" if row["receptor_seq"] == row["ligand_seq"] else "non-self", axis=1)
+    class_records = []
+    for _, row in test_df.iterrows():
+        uni_rec = row["entry"].split("--")[0].split("_")[-1]
+        uni_lig = row["entry"].split("--")[1].split("_")[-1]
+
+        if uni_rec == uni_lig:
+            class_records.append("self")
+        else:
+            class_records.append("non-self")
+        
+        # overwrite case where UNDEFINED
+        if uni_rec.lower() == "undefined" or uni_lig.lower() == "undefined":
+            class_records[-1] = "undefined"
+
+    test_df["class"] = class_records
+
+    # reorder columns to have class after label
     test_df.insert(3, "class", test_df.pop("class")) # move to 4th column
-
-    # Hnadle special cases based on uniprot ids
-    for idx, row in test_df.iterrows():
-        rec_uniprot = row["entry"].split("--")[0].split("_")[-1]
-        lig_uniprot = row["entry"].split("--")[1].split("_")[-1]
-
-        # edit class when self-interaction with equal uniprot ids
-        if rec_uniprot == lig_uniprot and row["class"] != "self":
-            test_df.at[idx, "class"] = "uniprot-self"
-
-        # edit class when undefined in uniprot ids
-        if rec_uniprot.lower() == "undefined" or lig_uniprot.lower() == "undefined":
-            test_df.at[idx, "class"] = "undefined"
-
 
     # save updated test_df
     if path is not None:
@@ -470,6 +472,87 @@ def remove_too_short_seqs(path: str) -> None:
     val.to_csv(os.path.join(path, "val.csv"), index=False)
     test.to_csv(os.path.join(path, "test.csv"), index=False)
 
+def extract_train_val_seqs(path: str, out_path: str) -> None:
+    df = pd.concat([
+        pd.read_csv(os.path.join(path, "train.csv")),
+        pd.read_csv(os.path.join(path, "val.csv")),
+    ])
+
+    sequences = pd.concat([df["receptor_seq"], df["ligand_seq"]]).unique()
+    with open(os.path.join(out_path, "train_val_sequences.fasta"), "w") as f:
+        for i, seq in enumerate(sequences):
+            f.write(f">seq_{i}\n{seq}\n")
+
+def remove_overlapping_uniprot_ids(path: str, out_path: str) -> None:
+    train_csv = os.path.join(path, "train.csv")
+    val_csv = os.path.join(path, "val.csv")
+    test_csv = os.path.join(path, "test.csv")
+
+    train_df = pd.read_csv(train_csv)
+    val_df = pd.read_csv(val_csv)
+    test_df = pd.read_csv(test_csv)
+
+    # only positives considered for UNIPROT ID overlaps, but only train and test cleaned
+    train_df = train_df[train_df["label"] == 1]
+    test_df = test_df[test_df["label"] == 1]
+
+    # extract unique UNIPROT IDs
+    def extract_unique_uniprot_ids(df):
+        df["receptor_uniprot_id"] = df["entry"].str.split("--").str[0].str.split("_").str[-1]
+        df["ligand_uniprot_id"] = df["entry"].str.split("--").str[1].str.split("_").str[-1]
+
+        receptor_ids = set(df["receptor_uniprot_id"].unique())
+        ligand_ids = set(df["ligand_uniprot_id"].unique())
+
+        unique_ids = receptor_ids.union(ligand_ids)
+        return unique_ids
+
+    train_ids = extract_unique_uniprot_ids(train_df)
+    val_ids = extract_unique_uniprot_ids(val_df)
+    test_ids = extract_unique_uniprot_ids(test_df)
+
+    print(f"Number of unique UNIPROT IDs in Train: {len(train_ids)}")
+    print(f"Number of unique UNIPROT IDs in Val: {len(val_ids)}")
+    print(f"Number of unique UNIPROT IDs in Test: {len(test_ids)}")
+
+    train_val_overlap = train_ids.intersection(val_ids)
+    train_test_overlap = train_ids.intersection(test_ids)
+    train_overlap = train_val_overlap.union(train_test_overlap)
+    val_test_overlap = val_ids.intersection(test_ids)
+
+    # print overlaps between sets
+    print(f"Train Val & Test overlap ({len(train_overlap)}): {train_overlap}")
+    print(f"Val and Test overlap ({len(val_test_overlap)}): {val_test_overlap}")
+
+    # remove overlapping UNIPROT IDs from train set
+    def remove_overlapping_ids(df, overlapping_ids):
+        mask_rec = df["entry"].str.split("--").str[0].str.split("_").str[-1].isin(overlapping_ids)
+        mask_lig = df["entry"].str.split("--").str[1].str.split("_").str[-1].isin(overlapping_ids)
+        combined_mask = mask_rec | mask_lig
+        filtered_df = df[~combined_mask].reset_index(drop=True)
+        return filtered_df
+    
+    cleaned_train_df = remove_overlapping_ids(train_df, train_overlap)
+    print(f"Size of Train set before removing overlapping UNIPROT IDs: {len(train_df)}")
+    print(f"Size of Train set after removing overlapping UNIPROT IDs: {len(cleaned_train_df)}")
+    
+    cleaned_test_df = remove_overlapping_ids(test_df, val_test_overlap)
+    print(f"Size of Test set before removing overlapping UNIPROT IDs: {len(test_df)}")
+    print(f"Size of Test set after removing overlapping UNIPROT IDs: {len(cleaned_test_df)}")
+
+    print(f"Val set remains unchanged with size: {len(val_df)}")
+
+    # resample negatives
+    cleaned_train_neg = sample_negatives(cleaned_train_df, "train", len(cleaned_train_df))
+    cleaned_train_df = pd.concat([cleaned_train_df, cleaned_train_neg], ignore_index=True)
+    cleaned_test_neg = sample_negatives(cleaned_test_df, "test", len(cleaned_test_df))
+    cleaned_test_df = pd.concat([cleaned_test_df, cleaned_test_neg], ignore_index=True)
+
+    # save cleaned datasets
+    cleaned_train_df.to_csv(os.path.join(out_path, "train.csv"), index=False)
+    val_df.to_csv(os.path.join(out_path, "val.csv"), index=False)
+    cleaned_test_df.to_csv(os.path.join(out_path, "test.csv"), index=False)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="different utilities for data processing")
     parser.add_argument('--function', type=int, required=True, help='Function to execute: 1 - add labels, 2 - add test classes, 3 - create fasta files')
@@ -496,5 +579,9 @@ if __name__ == "__main__":
         completely_balanced_splits(args.path, args.out_path)
     elif args.function == 9:
         remove_too_short_seqs(args.path)
+    elif args.function == 10:
+        extract_train_val_seqs(args.path, args.out_path)
+    elif args.function == 11:
+        remove_overlapping_uniprot_ids(args.path, args.out_path)
     else:
         print("Invalid function selected.")
