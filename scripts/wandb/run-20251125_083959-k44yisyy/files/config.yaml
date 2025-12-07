@@ -1,0 +1,102 @@
+_wandb:
+    value:
+        cli_version: 0.21.0
+        e:
+            qjb25l6gksfudxr6bellf84a8yh4dao5:
+                args:
+                    - --token
+                    - 98dffe63f9fc53a47a575d61c42bada9ade0e93b
+                    - --model
+                    - LinearFC
+                    - --epochs
+                    - "5"
+                    - --cache_dir
+                    - /nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM2/pinder/mean
+                    - --path
+                    - /nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced
+                codePath: scripts/test_architecture.py
+                codePathLocal: test_architecture.py
+                cpu_count: 32
+                cpu_count_logical: 32
+                disk:
+                    /:
+                        total: "940611383296"
+                        used: "231930396672"
+                executable: /nfs/scratch/pinder/negative_dataset/env/bin/python
+                git:
+                    commit: d82f1549f5ebbb55064e3e1483f6b4922678e1dc
+                    remote: https://github.com/Ento0n/FoPra
+                host: compms-gpu-2.exbio.wzw.tum.de
+                memory:
+                    total: "540628488192"
+                os: Linux-5.15.0-130-generic-x86_64-with-glibc2.35
+                program: /nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py
+                python: CPython 3.13.5
+                root: /nfs/scratch/pinder/negative_dataset/my_repository/scripts
+                slurm:
+                    cluster_name: (null)
+                    conf: /etc/slurm/slurm.conf
+                    cpus_on_node: "1"
+                    cpus_per_task: "1"
+                    gpus_on_node: "1"
+                    gtids: "0"
+                    job_cpus_per_node: "1"
+                    job_end_time: "1764405594"
+                    job_gid: "1491800263"
+                    job_gpus: "2"
+                    job_id: "4888350"
+                    job_name: run_model
+                    job_nodelist: compms-gpu-2.exbio.wzw.tum.de
+                    job_num_nodes: "1"
+                    job_partition: shared-gpu
+                    job_qos: normal
+                    job_start_time: "1764059994"
+                    job_uid: "1491800344"
+                    job_user: a.spannagl
+                    jobid: "4888350"
+                    localid: "0"
+                    mem_per_node: "32768"
+                    nnodes: "1"
+                    nodeid: "0"
+                    nodelist: compms-gpu-2.exbio.wzw.tum.de
+                    nprocs: "1"
+                    ntasks: "1"
+                    prio_process: "0"
+                    procid: "0"
+                    submit_dir: /nfs/scratch/pinder/negative_dataset/my_repository/scripts
+                    submit_host: grover.exbio.wzw.tum.de
+                    task_pid: "406135"
+                    tasks_per_node: "1"
+                    topology_addr: compms-gpu-2.exbio.wzw.tum.de
+                    topology_addr_pattern: node
+                    tres_per_task: cpu:1
+                startedAt: "2025-11-25T08:39:59.897121Z"
+                writerId: qjb25l6gksfudxr6bellf84a8yh4dao5
+        m: []
+        python_version: 3.13.5
+        t:
+            "1":
+                - 1
+                - 5
+                - 53
+            "2":
+                - 1
+                - 5
+                - 53
+            "3":
+                - 1
+                - 16
+            "4": 3.13.5
+            "5": 0.21.0
+            "12": 0.21.0
+            "13": linux-x86_64
+architecture:
+    value: LinearFC
+batch_size:
+    value: 4
+dataset:
+    value: /nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced
+epochs:
+    value: 5
+learning_rate:
+    value: 0.0001
