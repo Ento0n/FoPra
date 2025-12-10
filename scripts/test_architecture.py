@@ -98,7 +98,7 @@ def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kerne
     # Compute fixed global pad lengths for one-hot case to keep model input size constant
     pad_rec_len = None
     pad_lig_len = None
-    if one_hot and not residue:
+    if one_hot:
         rec_max_train = train_df["receptor_seq"].str.len().max()
         rec_max_val   = val_df["receptor_seq"].str.len().max()
         rec_max_test  = test_df["receptor_seq"].str.len().max()
@@ -214,9 +214,13 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
         recs = [F.pad(rec, (0, 0, 0, pad_rec_len - rec.size(0))) for rec in recs] # (Lr, A) -> (padded_Lr, A)
         ligs = [F.pad(lig, (0, 0, 0, pad_lig_len - lig.size(0))) for lig in ligs] # (Ll, A) -> (padded_Ll, A)
 
-        # flatten the one hot encoding and stack batch in 1 tensor
-        recs = torch.stack([torch.flatten(rec) for rec in recs]) # (B, A * padded_Lr)
-        ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (B, A * padded_Ll)
+        if not residue:
+            # flatten the one hot encoding and stack batch in 1 tensor
+            recs = torch.stack([torch.flatten(rec) for rec in recs]) # (B, A * padded_Lr)
+            ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (B, A * padded_Ll)
+        else:
+            recs = torch.stack(recs)  # (B, padded_Lr, A)
+            ligs = torch.stack(ligs)  # (B, padded_Ll, A)
     
     # for test set, also return classes
     if test:
@@ -772,10 +776,8 @@ def main():
     parser.add_argument('--lrp', action='store_true', help='If set, perform LRP analysis after testing')
     parser.add_argument('--judith_test', type=str, help='If set, use Judith gold standard test set')
     parser.add_argument('--limit_training', type=int, default=None, help='Limit the number of training samples (for quick tests)')
-
-    group = parser.add_mutually_exclusive_group()
-    group.add_argument('--residue', action='store_true', help='Use residue-level embeddings instead of mean embeddings')
-    group.add_argument('--one_hot', action='store_true', help='Use one-hot encoding instead of embeddings')
+    parser.add_argument('--residue', action='store_true', help='Use residue-level embeddings instead of mean embeddings')
+    parser.add_argument('--one_hot', action='store_true', help='Use one-hot encoding instead of embeddings')
 
     args = parser.parse_args()
 
