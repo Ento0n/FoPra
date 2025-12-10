@@ -553,6 +553,58 @@ def remove_overlapping_uniprot_ids(path: str, out_path: str) -> None:
     val_df.to_csv(os.path.join(out_path, "val.csv"), index=False)
     cleaned_test_df.to_csv(os.path.join(out_path, "test.csv"), index=False)
 
+def extract_test_species():
+    test_file_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced/test.csv"
+    uniprot_accession_tax_id_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/sunburst_data/full_uniprot_sequences.fasta"
+    lineage_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/sunburst_data/uniprot_lineage.tsv"
+    out_path = "/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced/test_species_counts.tsv"
+
+    accession_tax_id_mapping = {}
+    with open(uniprot_accession_tax_id_path, "r") as f:
+        for line in f:
+            if line.startswith(">"):
+                accession = line.split("|")[0][1:].strip()
+                tax_id = line.split("|")[1].split("=")[1].strip()
+                accession_tax_id_mapping[accession] = tax_id
+    
+    print(f"Total accession to tax ID mappings: {len(accession_tax_id_mapping)}")
+
+    tax_id_scientific_name_mapping = {}
+    with open(lineage_path, "r") as f:
+        for line in f:
+            tax_id = line.split("\t")[0].strip()
+            scientific_name = line.split("\t")[1].strip()
+            tax_id_scientific_name_mapping[tax_id] = scientific_name
+
+    print(f"Total tax ID to scientific name mappings: {len(tax_id_scientific_name_mapping)}")
+    test_df = pd.read_csv(test_file_path)
+
+    # Count for each species in test how often it appears
+    tax_id_counter = Counter()
+    for _, row in test_df.iterrows():
+        rec_accession = row["entry"].split("--")[0].split("_")[-1]
+        lig_accession = row["entry"].split("--")[1].split("_")[-1]
+
+        if rec_accession != "UNDEFINED":
+            rec_tax_id = accession_tax_id_mapping[rec_accession]
+            tax_id_counter[rec_tax_id] += 1
+
+        if lig_accession != "UNDEFINED":
+            lig_tax_id = accession_tax_id_mapping[lig_accession]
+            tax_id_counter[lig_tax_id] += 1
+    
+    # print species counts to out_path
+    with open(out_path, "w") as f:
+        f.write("Tax ID\tScientific Name\tCount in Test Set\n")
+        for tax_id, count in tax_id_counter.most_common():
+            if tax_id in tax_id_scientific_name_mapping.keys():
+                scientific_name = tax_id_scientific_name_mapping[tax_id]
+            else:
+                scientific_name = "UNKNOWN"
+            f.write(f"{tax_id}\t{scientific_name}\t{count}\n")
+
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="different utilities for data processing")
     parser.add_argument('--function', type=int, required=True, help='Function to execute: 1 - add labels, 2 - add test classes, 3 - create fasta files')
@@ -583,5 +635,7 @@ if __name__ == "__main__":
         extract_train_val_seqs(args.path, args.out_path)
     elif args.function == 11:
         remove_overlapping_uniprot_ids(args.path, args.out_path)
+    elif args.function == 12:
+        extract_test_species()
     else:
         print("Invalid function selected.")
