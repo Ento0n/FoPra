@@ -1,0 +1,92 @@
+{
+  "os":  "Linux-6.8.0-88-generic-x86_64-with-glibc2.35",
+  "python":  "CPython 3.13.5",
+  "startedAt":  "2025-12-18T15:47:50.836514Z",
+  "args":  [
+    "--batch_size=4",
+    "--dropout=0.3",
+    "--encoding=one_hot",
+    "--learning_rate=0.00021118949524290975",
+    "--model=LinearFC",
+    "--path=/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced",
+    "--token=98dffe63f9fc53a47a575d61c42bada9ade0e93b",
+    "--weight_decay=1.1910123806396453e-05"
+  ],
+  "program":  "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py",
+  "codePath":  "scripts/test_architecture.py",
+  "codePathLocal":  "test_architecture.py",
+  "git":  {
+    "remote":  "https://github.com/Ento0n/FoPra",
+    "commit":  "7f62763a38de65c60a83431d5c6e0d4ee4dc5496"
+  },
+  "email":  "antonspannagl@gmail.com",
+  "root":  "/nfs/scratch/pinder/negative_dataset/my_repository/scripts",
+  "host":  "gpu02.exbio.wzw.tum.de",
+  "executable":  "/nfs/scratch/pinder/negative_dataset/env/bin/python",
+  "cpu_count":  64,
+  "cpu_count_logical":  64,
+  "gpu":  "NVIDIA A40",
+  "gpu_count":  1,
+  "disk":  {
+    "/":  {
+      "total":  "588460998656",
+      "used":  "212301815808"
+    }
+  },
+  "memory":  {
+    "total":  "540602925056"
+  },
+  "gpu_nvidia":  [
+    {
+      "name":  "NVIDIA A40",
+      "memoryTotal":  "48305799168",
+      "cudaCores":  10752,
+      "architecture":  "Ampere",
+      "uuid":  "GPU-4fd784bf-ee6f-3a12-0aae-09a77738eb63"
+    }
+  ],
+  "cudaVersion":  "12.8",
+  "slurm":  {
+    "array_job_id":  "5241837",
+    "array_task_count":  "16",
+    "array_task_id":  "2",
+    "array_task_max":  "15",
+    "array_task_min":  "0",
+    "array_task_step":  "1",
+    "cluster_name":  "(null)",
+    "conf":  "/etc/slurm/slurm.conf",
+    "cpus_on_node":  "8",
+    "cpus_per_task":  "8",
+    "gpus_on_node":  "1",
+    "gtids":  "0",
+    "job_cpus_per_node":  "8",
+    "job_end_time":  "1766418458",
+    "job_gid":  "1491800263",
+    "job_gpus":  "1",
+    "job_id":  "5241840",
+    "job_name":  "wandb-sweep",
+    "job_nodelist":  "gpu02.exbio.wzw.tum.de",
+    "job_num_nodes":  "1",
+    "job_partition":  "shared-gpu",
+    "job_qos":  "normal",
+    "job_start_time":  "1766072858",
+    "job_uid":  "1491800344",
+    "job_user":  "a.spannagl",
+    "jobid":  "5241840",
+    "localid":  "0",
+    "mem_per_node":  "32768",
+    "nnodes":  "1",
+    "nodeid":  "0",
+    "nodelist":  "gpu02.exbio.wzw.tum.de",
+    "prio_process":  "0",
+    "procid":  "0",
+    "submit_dir":  "/nfs/scratch/pinder/negative_dataset/my_repository/scripts",
+    "submit_host":  "norm.exbio.wzw.tum.de",
+    "task_pid":  "558502",
+    "tasks_per_node":  "1",
+    "topology_addr":  "gpu02.exbio.wzw.tum.de",
+    "topology_addr_pattern":  "node",
+    "tres_per_task":  "cpu:8"
+  },
+  "writerId":  "zmvswchy6nlgrihb1r5pimej1yeb8vrx"
+}

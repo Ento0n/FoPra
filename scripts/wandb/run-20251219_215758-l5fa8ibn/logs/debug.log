@@ -1,0 +1,24 @@
+2025-12-19 21:57:58,379 INFO    MainThread:398502 [wandb_setup.py:_flush():80] Current SDK version is 0.21.0
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_setup.py:_flush():80] Configure stats pid to 398502
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_setup.py:_flush():80] Loading settings from /nfs/home/students/a.spannagl/.config/wandb/settings
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_setup.py:_flush():80] Loading settings from /nfs/scratch/pinder/negative_dataset/my_repository/scripts/wandb/settings
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_setup.py:_flush():80] Loading settings from environment variables
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_init.py:setup_run_log_directory():703] Logging user logs to /nfs/scratch/pinder/negative_dataset/my_repository/scripts/wandb/run-20251219_215758-l5fa8ibn/logs/debug.log
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_init.py:setup_run_log_directory():704] Logging internal logs to /nfs/scratch/pinder/negative_dataset/my_repository/scripts/wandb/run-20251219_215758-l5fa8ibn/logs/debug-internal.log
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_init.py:init():830] calling init triggers
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_init.py:init():835] wandb.init called with sweep_config: {'batch_size': 2, 'dropout': 0.3, 'learning_rate': 0.00016065806813257274, 'weight_decay': 0.0003671300747282038}
+config: {'learning_rate': 0.00016065806813257274, 'architecture': 'LinearFC', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 2, 'epochs': 5, 'weight_decay': 0.0003671300747282038, 'dropout': 0.3, '_wandb': {}}
+2025-12-19 21:57:58,380 INFO    MainThread:398502 [wandb_init.py:init():871] starting backend
+2025-12-19 21:57:58,591 INFO    MainThread:398502 [wandb_init.py:init():874] sending inform_init request
+2025-12-19 21:57:58,599 INFO    MainThread:398502 [wandb_init.py:init():882] backend started and connected
+2025-12-19 21:57:58,600 INFO    MainThread:398502 [wandb_run.py:_config_callback():1363] config_cb None None {'batch_size': 2, 'dropout': 0.3, 'learning_rate': 0.00016065806813257274, 'weight_decay': 0.0003671300747282038}
+2025-12-19 21:57:58,600 INFO    MainThread:398502 [wandb_init.py:init():953] updated telemetry
+2025-12-19 21:57:58,608 INFO    MainThread:398502 [wandb_init.py:init():977] communicating run to backend with 90.0 second timeout
+2025-12-19 21:57:59,136 INFO    MainThread:398502 [wandb_init.py:init():1029] starting run threads in backend
+2025-12-19 21:57:59,305 INFO    MainThread:398502 [wandb_run.py:_console_start():2458] atexit reg
+2025-12-19 21:57:59,305 INFO    MainThread:398502 [wandb_run.py:_redirect():2306] redirect: wrap_raw
+2025-12-19 21:57:59,305 INFO    MainThread:398502 [wandb_run.py:_redirect():2375] Wrapping output streams.
+2025-12-19 21:57:59,305 INFO    MainThread:398502 [wandb_run.py:_redirect():2398] Redirects installed.
+2025-12-19 21:57:59,310 INFO    MainThread:398502 [wandb_init.py:init():1075] run started, returning control to user process
+2025-12-19 21:58:03,263 INFO    MainThread:398502 [wandb_watch.py:_watch():70] Watching
+2025-12-20 04:59:51,684 INFO    MsgRouterThr:398502 [mailbox.py:close():129] [no run ID] Closing mailbox, abandoning 1 handles.

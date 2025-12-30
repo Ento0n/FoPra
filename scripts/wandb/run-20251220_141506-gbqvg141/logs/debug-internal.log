@@ -1,0 +1,13 @@
+{"time":"2025-12-20T14:15:06.5325787Z","level":"INFO","msg":"stream: starting","core version":"0.21.0"}
+{"time":"2025-12-20T14:15:06.84145214Z","level":"INFO","msg":"stream: created new stream","id":"gbqvg141"}
+{"time":"2025-12-20T14:15:06.841483843Z","level":"INFO","msg":"stream: started","id":"gbqvg141"}
+{"time":"2025-12-20T14:15:06.841513261Z","level":"INFO","msg":"writer: Do: started","stream_id":"gbqvg141"}
+{"time":"2025-12-20T14:15:06.841577959Z","level":"INFO","msg":"handler: started","stream_id":"gbqvg141"}
+{"time":"2025-12-20T14:15:06.841635813Z","level":"INFO","msg":"sender: started","stream_id":"gbqvg141"}
+{"time":"2025-12-20T14:20:07.695445009Z","level":"INFO","msg":"api: retrying HTTP error","status":500,"url":"https://api.wandb.ai/files/tonitobacco/my_repository-scripts/gbqvg141/file_stream","body":"{\"error\":\"context deadline exceeded\"}"}
+{"time":"2025-12-20T15:21:18.385732996Z","level":"INFO","msg":"stream: closing","id":"gbqvg141"}
+{"time":"2025-12-20T15:21:18.928048775Z","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-12-20T15:21:19.161725042Z","level":"INFO","msg":"handler: closed","stream_id":"gbqvg141"}
+{"time":"2025-12-20T15:21:19.161755583Z","level":"INFO","msg":"writer: Close: closed","stream_id":"gbqvg141"}
+{"time":"2025-12-20T15:21:19.161774951Z","level":"INFO","msg":"sender: closed","stream_id":"gbqvg141"}
+{"time":"2025-12-20T15:21:19.164613575Z","level":"INFO","msg":"stream: closed","id":"gbqvg141"}

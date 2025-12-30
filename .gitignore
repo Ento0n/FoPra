@@ -12,3 +12,6 @@
 
 # slurm run files
 *.sh
+
+# sweep configs
+*.yaml

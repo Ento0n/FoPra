@@ -1,0 +1,53 @@
+WandB run config:
+{'learning_rate': 0.0001793373846745901, 'architecture': 'LinearFC', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 2, 'epochs': 5, 'weight_decay': 0.0003867015186551248, 'dropout': 0.4, 'encoding': 'one_hot', 'model': 'LinearFC', 'path': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'token': '98dffe63f9fc53a47a575d61c42bada9ade0e93b'}
+
+Using fixed one-hot pad lengths: receptor=2490, ligand=2490
+
+LinearFC(
+  (fc): Sequential(
+    (0): Linear(in_features=124500, out_features=1024, bias=True)
+    (1): BatchNorm1d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (2): ReLU(inplace=True)
+    (3): Dropout(p=0.4, inplace=False)
+    (4): Linear(in_features=1024, out_features=512, bias=True)
+    (5): BatchNorm1d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (6): ReLU(inplace=True)
+    (7): Dropout(p=0.4, inplace=False)
+    (8): Linear(in_features=512, out_features=1, bias=True)
+  )
+)
+Epoch 0 training loss: 0.6956
+Validation accuracy: 52.44%, Validation loss: 0.6925
+Epoch 1 training loss: 0.6933
+Validation accuracy: 50.55%, Validation loss: 0.6923
+Epoch 2 training loss: 0.6933
+Validation accuracy: 51.89%, Validation loss: 0.6928
+Epoch 3 training loss: 0.6932
+Validation accuracy: 53.42%, Validation loss: 0.6917
+Epoch 4 training loss: 0.6932
+Validation accuracy: 50.73%, Validation loss: 0.6925
+
+
+General test accuracy: 52.86% (1294 samples)
+Total negative samples: 647, Total positive samples: 647
+Confusion Matrix:
+[[363 284]
+ [326 321]]
+
+Self-interaction test accuracy: 46.41% (765 samples)
+Self negative samples: 382, Self positive samples: 383
+Confusion Matrix:
+[[199 183]
+ [227 156]]
+
+Non-self-interaction test accuracy: 65.03% (386 samples)
+Non-self negative samples: 194, Non-self positive samples: 192
+Confusion Matrix:
+[[115  79]
+ [ 56 136]]
+
+Undefined class test accuracy: 54.55% (143 samples)
+Undefined negative samples: 71, Undefined positive samples: 72
+Confusion Matrix:
+[[49 22]
+ [43 29]]

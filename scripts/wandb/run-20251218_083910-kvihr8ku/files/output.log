@@ -1,0 +1,15 @@
+WandB run config:
+{'learning_rate': 0.00011535257890994196, 'architecture': 'linearFC', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 2, 'epochs': 5, 'weight_decay': 4.621536319283138e-06, 'dropout': 0.7, 'encoding': 'one_hot', 'model': 'linearFC', 'path': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'token': '98dffe63f9fc53a47a575d61c42bada9ade0e93b'}
+
+Using fixed one-hot pad lengths: receptor=2490, ligand=2490
+Traceback (most recent call last):
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 896, in <module>
+    main()
+    ~~~~^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 842, in main
+    model, optimizer, criterion = setup_model(train_loader, device, run, args.encoding, args.model)
+                                  ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 264, in setup_model
+    print(model)
+          ^^^^^
+UnboundLocalError: cannot access local variable 'model' where it is not associated with a value

@@ -1,0 +1,37 @@
+WandB run config:
+{'learning_rate': 0.0001, 'architecture': 'baseline2d', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 4, 'epochs': 5, 'weight_decay': 1e-05, 'dropout': 0.5}
+
+Using fixed pad lengths: receptor=2490, ligand=2490
+
+Receptor embedding size: torch.Size([1280])
+Receptor embedding size: torch.Size([1280])
+Receptor embedding size: torch.Size([1280])
+Receptor embedding size: torch.Size([1280])
+Ligand embedding size: torch.Size([1280])
+Ligand embedding size: torch.Size([1280])
+Ligand embedding size: torch.Size([1280])
+Ligand embedding size: torch.Size([1280])
+Traceback (most recent call last):
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 947, in <module>
+    main()
+    ~~~~^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 893, in main
+    model, optimizer, criterion = setup_model(train_loader, device, run, args.encoding, args.model)
+                                  ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 260, in setup_model
+    rec_emb_sample, _,  _, _, _ = next(iter(train_loader))
+                                  ~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/env/lib/python3.13/site-packages/torch/utils/data/dataloader.py", line 733, in __next__
+    data = self._next_data()
+  File "/nfs/scratch/pinder/negative_dataset/env/lib/python3.13/site-packages/torch/utils/data/dataloader.py", line 789, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/nfs/scratch/pinder/negative_dataset/env/lib/python3.13/site-packages/torch/utils/data/_utils/fetch.py", line 55, in fetch
+    return self.collate_fn(data)
+           ~~~~~~~~~~~~~~~^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 205, in collate_fn
+    recs = [F.pad(rec, (0, 0, 0, pad_rec_len - rec.size(0))) for rec in recs]
+            ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/env/lib/python3.13/site-packages/torch/nn/functional.py", line 5209, in pad
+    return torch._C._nn.pad(input, pad, mode, value)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^
+RuntimeError: Padding length should be less than or equal to two times the input dimension but got padding length 4 and input of dimension 1

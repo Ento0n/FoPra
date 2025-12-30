@@ -1,0 +1,52 @@
+WandB run config:
+{'learning_rate': 0.0005543852110904562, 'architecture': 'LinearFC', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 4, 'epochs': 20, 'weight_decay': 1.2868595418089724e-06, 'dropout': 0.4}
+
+LinearFC(
+  (fc): Sequential(
+    (0): Linear(in_features=2560, out_features=1024, bias=True)
+    (1): BatchNorm1d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (2): ReLU(inplace=True)
+    (3): Dropout(p=0.4, inplace=False)
+    (4): Linear(in_features=1024, out_features=512, bias=True)
+    (5): BatchNorm1d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)
+    (6): ReLU(inplace=True)
+    (7): Dropout(p=0.4, inplace=False)
+    (8): Linear(in_features=512, out_features=1, bias=True)
+  )
+)
+Epoch 0 training loss: 0.5719
+Validation accuracy: 58.25%, Validation loss: 0.9817
+Epoch 1 training loss: 0.4986
+Validation accuracy: 58.56%, Validation loss: 0.9693
+Epoch 2 training loss: 0.4715
+Validation accuracy: 58.56%, Validation loss: 0.9454
+Epoch 3 training loss: 0.4590
+Validation accuracy: 59.29%, Validation loss: 1.0100
+Epoch 4 training loss: 0.4508
+Validation accuracy: 59.05%, Validation loss: 1.0269
+Early stopping at epoch 4 due to no improvement in validation loss.
+
+
+General test accuracy: 60.28% (1294 samples)
+Total negative samples: 647, Total positive samples: 647
+Confusion Matrix:
+[[155 492]
+ [ 22 625]]
+
+Self-interaction test accuracy: 50.07% (765 samples)
+Self negative samples: 382, Self positive samples: 383
+Confusion Matrix:
+[[  0 382]
+ [  0 383]]
+
+Non-self-interaction test accuracy: 74.87% (386 samples)
+Non-self negative samples: 194, Non-self positive samples: 192
+Confusion Matrix:
+[[114  80]
+ [ 17 175]]
+
+Undefined class test accuracy: 75.52% (143 samples)
+Undefined negative samples: 71, Undefined positive samples: 72
+Confusion Matrix:
+[[41 30]
+ [ 5 67]]

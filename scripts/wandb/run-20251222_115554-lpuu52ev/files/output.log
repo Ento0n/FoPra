@@ -1,0 +1,18 @@
+WandB run config:
+{'learning_rate': 0.0001, 'architecture': 'baseline2d', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 4, 'epochs': 20, 'weight_decay': 1e-05, 'dropout': 0.5}
+
+Embedding for receptor sequence with key 9e9dbd3fa90638dbf08e338e95459d31 not found in cache, but continue. Seq: LFGAIAGFIENGWEGLIDGWYGFRHQNAQGEGTAADYKSTQSAIDQITGKLNRLIEKTNQQFELIDNEFNEVEKQIGNVINWTRDSITEVWSYNAELLVAMENQHTIDLADSEMDKLYERVKRQLRENAEEDGTGCFEIFHKCDDDCMASIRNNTYDHSKYREEAMQNR
+Embedding for receptor sequence with key 76798d96ac118c21cf763c1188372ca4 not found in cache, but continue. Seq: SLALSLTADQMVSALLDAEPPILYSEYDPTRPFSEASMMGLLTNLADRELVHMINWAKRVPGFVDLTLHDQVHLLECAWLEILMIGLVWRSMEHPGKLLFAPNLLLDRNQGKCVEGMVEIFDMLLATSSRFRMMNLQGEEFVCLKSIILLNSGVYTFSTLKSLEEKDHIHRVLDKITDTLIHLMAKAGLTLQQQHQRLAQLLLILSHIRHMSNKGMEHLYSMKCKNVVPLSDLLLEMLDAHR
+Embedding for receptor sequence with key 3c3fe64f6bbff1cedb9088694806274f not found in cache, but continue. Seq: TSQVRQNYHQDSEEAINRQINLELYASYVYLSMSYYFDRDDVALKNFAKYFLHQSHEEREHAEKLMKLQNQRGGRIFLQDIQKPDEDDWESGLNAMEEALELEKNVNQSLLELHKLATDKNDPHLCDFIETHYLNEQVKAIKELGDHVTNLRKMGAPESGLAEYLFDKHTLG
+Embedding for receptor sequence with key 227215019c7ae6b7fe0567f86f6ae6a6 not found in cache, but continue. Seq: GSHSLRYFYTAVSRPGLGEPRFIAVGYVDDTQFVRFDSDAPNPRMEPRAPWVEQEGPEYWDRETRKVKNTAQIFRVDLNTLLRYYNQSESGSHNIQRMYGCDVEPDGRLLRGYNQDSYDGKDYIALNEDLRSWTAADTAAQITGRKWEEAGEAERWRNYLQGTCVEWLAKYLDMGKETLLRAESPNTRVTRHPISDREVTLRCWALGFYPAEITLTWQRDGQDHTQDAELVETRPAGDGTFQKWAAVVVSSGEEQRYTCHVQHEGLREPITLRWE
+Traceback (most recent call last):
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 948, in <module>
+    main()
+    ~~~~^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 894, in main
+    model, optimizer, criterion = setup_model(train_loader, device, run, args.encoding, args.model)
+                                  ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 262, in setup_model
+    embed_dim = rec_emb_sample.size(2)  # Assuming the embedding dimension is the third dimension
+                ^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'size'

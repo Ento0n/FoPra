@@ -1,0 +1,13 @@
+WandB run config:
+{'learning_rate': 0.0001, 'architecture': 'baseline2d', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 4, 'epochs': 5, 'weight_decay': 1e-05, 'dropout': 0.5}
+
+Using fixed pad lengths: receptor=2490, ligand=2490
+
+Receptor embedding size: torch.Size([171, 1536])
+Receptor embedding size: torch.Size([244, 1536])
+Receptor embedding size: torch.Size([174, 1536])
+Receptor embedding size: torch.Size([277, 1536])
+Ligand embedding size: torch.Size([129, 1536])
+Ligand embedding size: torch.Size([383, 1536])
+Ligand embedding size: torch.Size([101, 1536])
+Ligand embedding size: torch.Size([101, 1536])

@@ -1,0 +1,24 @@
+WandB run config:
+{'learning_rate': 0.0003325457421685001, 'architecture': 'linearFC', 'dataset': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'batch_size': 3, 'epochs': 5, 'weight_decay': 5.843299094983234e-05, 'dropout': 0.3, 'model': 'linearFC', 'path': '/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced', 'token': '98dffe63f9fc53a47a575d61c42bada9ade0e93b'}
+Traceback (most recent call last):
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 895, in <module>
+    main()
+    ~~~~^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 841, in main
+    model, optimizer, criterion = setup_model(train_loader, device, run, args.residue, args.model)
+                                  ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 255, in setup_model
+    rec_emb_sample, lig_emb_sample, _ = next(iter(train_loader))
+                                        ~~~~^^^^^^^^^^^^^^^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/env/lib/python3.13/site-packages/torch/utils/data/dataloader.py", line 733, in __next__
+    data = self._next_data()
+  File "/nfs/scratch/pinder/negative_dataset/env/lib/python3.13/site-packages/torch/utils/data/dataloader.py", line 789, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/nfs/scratch/pinder/negative_dataset/env/lib/python3.13/site-packages/torch/utils/data/_utils/fetch.py", line 55, in fetch
+    return self.collate_fn(data)
+           ~~~~~~~~~~~~~~~^^^^^^
+  File "/nfs/scratch/pinder/negative_dataset/my_repository/scripts/test_architecture.py", line 169, in collate_fn
+    if os.path.exists(os.path.join(cache_dir, f"{key}.pt")):
+                      ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen posixpath>", line 77, in join
+TypeError: expected str, bytes or os.PathLike object, not NoneType

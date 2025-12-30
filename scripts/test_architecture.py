@@ -52,15 +52,13 @@ class SequencePairDatasetWithClasses(Dataset):
             'class': row['class']
         }
 
-def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kernel_size, wand_mode="online", epochs=5, model_name="linearFC", batch_size=4, judith_test_csv=None):
+def setup(path, cache_dir, train_csv, val_csv, test_csv, encoding, kernel_size, wand_mode="online", epochs=5, model_name="LinearFC", batch_size=4, judith_test_csv=None, learning_rate=1e-5, weight_decay=1e-3, dropout=0.5):
     #################__Torch device__################
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device, "\n")
 
     #################__WandB__######################
-
-    wandb.login(key="")
 
     # Start a new wandb run to track this script.
     run = wandb.init(
@@ -70,15 +68,19 @@ def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kerne
         project="FoPra",
         # Track hyperparameters and run metadata.
         config={
-            "learning_rate": 0.0001,
+            "learning_rate": learning_rate,
             "architecture": model_name,
             "dataset": path,
             "batch_size": batch_size,
             "epochs": epochs,
+            "weight_decay": weight_decay,
+            "dropout": dropout,
         },
         # mode
         mode=wand_mode,
     )
+
+    print(f"WandB run config:\n{run.config}\n")
 
     ##################__Dataset__########################
 
@@ -98,7 +100,7 @@ def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kerne
     # Compute fixed global pad lengths for one-hot case to keep model input size constant
     pad_rec_len = None
     pad_lig_len = None
-    if one_hot:
+    if encoding == "one_hot" or encoding == "residue":
         rec_max_train = train_df["receptor_seq"].str.len().max()
         rec_max_val   = val_df["receptor_seq"].str.len().max()
         rec_max_test  = test_df["receptor_seq"].str.len().max()
@@ -116,10 +118,10 @@ def setup(path, cache_dir, train_csv, val_csv, test_csv, residue, one_hot, kerne
 
         pad_rec_len = int(max(rec_max_train, rec_max_val, rec_max_test, judith_rec_max_test))
         pad_lig_len = int(max(lig_max_train, lig_max_val, lig_max_test, judith_lig_max_test))
-        print(f"Using fixed one-hot pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}\n")
+        print(f"Using fixed pad lengths: receptor={pad_rec_len}, ligand={pad_lig_len}\n")
 
-    collate = partial(collate_fn, test=False, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
-    collate_test = partial(collate_fn, test=True, cache_dir=cache_dir, residue=residue, one_hot=one_hot, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
+    collate = partial(collate_fn, test=False, cache_dir=cache_dir, encoding=encoding, model_name=model_name, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
+    collate_test = partial(collate_fn, test=True, cache_dir=cache_dir, encoding=encoding, model_name=model_name, kernel_size=kernel_size, pad_rec_len=pad_rec_len, pad_lig_len=pad_lig_len)
 
     train_loader = DataLoader(train_dataset, batch_size=run.config.batch_size, shuffle=True, collate_fn=collate)
     val_loader   = DataLoader(val_dataset,   batch_size=run.config.batch_size,               collate_fn=collate)
@@ -151,12 +153,12 @@ def aa_one_hot(seq: str) -> torch.Tensor:
     return one_hot.float()  # often float is convenient for models
 
 # custom collate function to handle variable-length sequences
-def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_len, pad_lig_len):
+def collate_fn(batch, test, cache_dir, encoding, model_name, kernel_size, pad_rec_len, pad_lig_len):
     labels = torch.stack([b["label"] for b in batch])
     recs = []
     ligs = []
 
-    if not one_hot:
+    if encoding != "one_hot":
         flag = False
         for b in batch:
             # generate MD5 key and retrieve embeddings
@@ -182,26 +184,21 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
                 flag = True
                 continue
         
+        rec_lens = torch.tensor([rec.size(0) for rec in recs], dtype=torch.long)  # (B,)
+        lig_lens = torch.tensor([lig.size(0) for lig in ligs], dtype=torch.long)  # (B,)
+        
         # if any embedding was missing, return None to skip this batch
         if flag:
             if test:
-                return None, None, None, None
+                return None, None, None, None, None, None
             else:
-                return None, None, None
+                return None, None, None, None, None
 
         # pad sequences to the maximum length in the batch, consider kernel size
-        if residue:
-            # Compute max lengths and round up to next multiple of kernel_size
-            max_rec_len = max(rec.size(0) for rec in recs)
-            max_lig_len = max(lig.size(0) for lig in ligs)
-
-            # Round up to nearest multiple of `kernel_size`
-            padded_rec_len = int(math.ceil(max_rec_len / kernel_size) * kernel_size)
-            padded_lig_len = int(math.ceil(max_lig_len / kernel_size) * kernel_size)
-
+        if encoding == "residue":
             # Pad sequences to the new lengths
-            recs = [F.pad(rec, (0, 0, 0, padded_rec_len - rec.size(0))) for rec in recs]
-            ligs = [F.pad(lig, (0, 0, 0, padded_lig_len - lig.size(0))) for lig in ligs]
+            recs = [F.pad(rec, (0, 0, 0, pad_rec_len - rec.size(0))) for rec in recs]
+            ligs = [F.pad(lig, (0, 0, 0, pad_lig_len - lig.size(0))) for lig in ligs]
 
         recs = torch.stack(recs)
         ligs = torch.stack(ligs)
@@ -210,17 +207,25 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
         recs = [aa_one_hot(b["receptor_seq"]) for b in batch] # List of (Lr, A)
         ligs = [aa_one_hot(b["ligand_seq"]) for b in batch] # List of (Ll, A)
 
+        rec_lens = torch.tensor([rec.size(0) for rec in recs], dtype=torch.long)  # (B,)
+        lig_lens = torch.tensor([lig.size(0) for lig in ligs], dtype=torch.long)  # (B,)
+
         # Pad sequences to the global longest sequence
         recs = [F.pad(rec, (0, 0, 0, pad_rec_len - rec.size(0))) for rec in recs] # (Lr, A) -> (padded_Lr, A)
         ligs = [F.pad(lig, (0, 0, 0, pad_lig_len - lig.size(0))) for lig in ligs] # (Ll, A) -> (padded_Ll, A)
 
-        if not residue:
+        if model_name != "baseline2d":
             # flatten the one hot encoding and stack batch in 1 tensor
             recs = torch.stack([torch.flatten(rec) for rec in recs]) # (B, A * padded_Lr)
             ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (B, A * padded_Ll)
         else:
             recs = torch.stack(recs)  # (B, padded_Lr, A)
             ligs = torch.stack(ligs)  # (B, padded_Ll, A)
+    
+    # after you know pad_rec_len, pad_lig_len
+    rec_kpm = torch.arange(pad_rec_len).unsqueeze(0) >= rec_lens.unsqueeze(1)  # (B, pad_rec_len) bool
+    lig_kpm = torch.arange(pad_lig_len).unsqueeze(0) >= lig_lens.unsqueeze(1)  # (B, pad_lig_len) bool
+
     
     # for test set, also return classes
     if test:
@@ -236,30 +241,35 @@ def collate_fn(batch, test, cache_dir, residue, one_hot, kernel_size, pad_rec_le
                 classes.append(3)
         classes = torch.tensor(classes, dtype=torch.long)
         
-        return recs, ligs, labels, classes
+        return recs, ligs, labels, rec_kpm, lig_kpm, classes
 
-    return recs, ligs, labels
+    return recs, ligs, labels, rec_kpm, lig_kpm
 
 #######################################__Model__##################################################
 
-def setup_model(train_loader, device, run, residue, model_name):
+def setup_model(train_loader, device, run, encoding, model_name):
     # 2. Setup device, model, optimizer, and loss function
-    if residue:
-        rec_emb_sample, _,  _ = next(iter(train_loader))
+    if model_name == "baseline2d":
+        rec_emb_sample, _,  _, _, _ = next(iter(train_loader))
         embed_dim = rec_emb_sample.size(2)  # Assuming the embedding dimension is the third dimension
-    else:
-        rec_emb_sample, lig_emb_sample, _ = next(iter(train_loader))
+    elif model_name == "LinearFC":
+        rec_emb_sample, lig_emb_sample, _, _, _ = next(iter(train_loader))
         embed_dim = rec_emb_sample.size(1) + lig_emb_sample.size(1)  # Assuming the embedding dimension is the second dimension
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
 
     if model_name == "LinearFC":
-        model = LinearFC(embed_dim).to(device)
+        model = LinearFC(embed_dim, dropout=run.config.dropout).to(device)
     elif model_name == "baseline2d":
         from models.baseline_fc_conv import baseline2d
         model = baseline2d(embed_dim).to(device)
+    else:
+        raise ValueError(f"Unknown model name: {model_name}")
 
-    
+    print(model)
+
     # Initialize optimizer and loss function
-    optimizer = optim.Adam(model.parameters(), lr=run.config.learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=run.config.learning_rate, weight_decay=run.config.weight_decay)
 
     # Binary Cross Entropy Loss for binary classification
     criterion = nn.BCEWithLogitsLoss()  # more stable than BCELoss with separate sigmoid
@@ -276,11 +286,14 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
         print(f"*** Training is limited to {training_limit} batches per epoch for debugging purposes ***\n")
 
     # Training loop
-    for i in range(run.config.epochs):
+    min_val = float('inf')
+    patience = 2
+    patience_counter = 0
+    for epoch in range(run.config.epochs):
 
         model.train()
-        total_loss = 0.0
-        for idx, (rec_emb, lig_emb, labels) in enumerate(train_loader):
+        sum_train_loss = 0.0
+        for idx, (rec_emb, lig_emb, labels, rec_kpm, lig_kpm) in enumerate(train_loader):
             if rec_emb is None or lig_emb is None or labels is None:
                 # skip this batch due to missing embeddings
                 continue
@@ -289,8 +302,12 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
             if training_limit and idx >= training_limit:
                 break
 
-            rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
-            logits = model(rec_emb, lig_emb)
+            rec_emb, lig_emb, labels, rec_kpm, lig_kpm = rec_emb.to(device), lig_emb.to(device), labels.to(device), rec_kpm.to(device), lig_kpm.to(device)
+
+            if model.residue:
+                logits = model(rec_emb, lig_emb, rec_kpm, lig_kpm)
+            else:
+                logits = model(rec_emb, lig_emb)
 
             labels = labels.float()  # Convert labels to float for BCELoss
 
@@ -299,30 +316,34 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            total_loss += loss.item()
+            sum_train_loss += loss.item()
 
-        print(f"Epoch {i} training loss: {total_loss / len(train_loader):.4f}")
+        train_loss = sum_train_loss / len(train_loader)
+        print(f"Epoch {epoch} training loss: {train_loss:.4f}")
         # log train loss to wandb
-        run.log({"train_loss": total_loss / len(train_loader)}, step=i)
+        run.log({"train_loss": train_loss}, step=epoch)
 
         # 4. Validation
         model.eval()
         correct, total = 0, 0
-        val_loss = 0.0
+        sum_val_loss = 0.0
         with torch.no_grad():
-            for rec_emb, lig_emb, labels in val_loader:
+            for rec_emb, lig_emb, labels, rec_kpm, lig_kpm in val_loader:
                 if rec_emb is None or lig_emb is None or labels is None:
                     # skip this batch due to missing embeddings
                     continue
 
-                rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
-                logits = model(rec_emb, lig_emb)
+                rec_emb, lig_emb, labels, rec_kpm, lig_kpm = rec_emb.to(device), lig_emb.to(device), labels.to(device), rec_kpm.to(device), lig_kpm.to(device)
+                if model.residue:
+                    logits = model(rec_emb, lig_emb, rec_kpm, lig_kpm)
+                else:
+                    logits = model(rec_emb, lig_emb)
 
                 labels = labels.float()  # Convert labels to float for BCELoss
 
                 # Loss
                 loss = criterion(logits, labels)
-                val_loss += loss.item()
+                sum_val_loss += loss.item()
 
                 # Accuracy
                 probs = torch.sigmoid(logits) # (B)
@@ -331,10 +352,28 @@ def train(device, run, model, optimizer, criterion, train_loader, val_loader, tr
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
 
-        avg_val_loss = val_loss / len(val_loader)
-        print(f"Validation accuracy: {correct/total*100:.2f}%, Validation loss: {avg_val_loss:.4f}")
+        val_loss = sum_val_loss / len(val_loader)
+        print(f"Validation accuracy: {correct/total*100:.2f}%, Validation loss: {val_loss:.4f}")
+
         # log validation metrics to wandb
-        run.log({"val_accuracy": correct/total, "val_loss": avg_val_loss}, step=i)
+        run.log({"val_accuracy": correct/total, "val_loss": val_loss}, step=epoch)
+
+        # log difference between train and val loss to wandb
+        run.log({"loss_diff": abs(val_loss - train_loss)}, step=epoch)
+
+        # new parameter to optimize val loss and loss difference
+        val_loss_plus_diff = val_loss + abs(val_loss - train_loss)
+        run.log({"val_loss_plus_diff": val_loss_plus_diff}, step=epoch)
+
+        # Early stopping based on validation loss
+        if val_loss < min_val:
+            min_val = val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            if patience_counter >= patience:
+                print(f"Early stopping at epoch {epoch} due to no improvement in validation loss.")
+                break
     
     # new line after training
     print("\n")
@@ -366,17 +405,20 @@ def test(device, model, test_loader):
     all_probs, all_preds, all_labels, all_classes = [], [], [], []
     falsy_idxs = []
     with torch.no_grad():
-        for idx, (rec_emb, lig_emb, labels, classes) in enumerate(test_loader):
+        for idx, (rec_emb, lig_emb, labels, rec_kpm, lig_kpm, classes) in enumerate(test_loader):
             if rec_emb is None or lig_emb is None or labels is None:
                 # skip this batch due to missing embeddings
                 falsy_idxs.extend([idx*4, idx*4+1, idx*4+2, idx*4+3])  # approximate batch size of 4
                 continue
 
-            rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
+            rec_emb, lig_emb, labels, rec_kpm, lig_kpm = rec_emb.to(device), lig_emb.to(device), labels.to(device), rec_kpm.to(device), lig_kpm.to(device)
 
             labels = labels.float()  # Convert labels to float for BCELoss
 
-            logits = model(rec_emb, lig_emb)
+            if model.residue:
+                logits = model(rec_emb, lig_emb, rec_kpm, lig_kpm)
+            else:
+                logits = model(rec_emb, lig_emb)
 
             # Accuracy
             probs = torch.sigmoid(logits)
@@ -462,17 +504,20 @@ def test_judith_gold(device, model, judith_test_loader):
     with torch.no_grad():
         all_probs, all_preds, all_labels = [], [], []
         falsy_idxs = []
-        for idx, (rec_emb, lig_emb, labels) in enumerate(judith_test_loader):
+        for idx, (rec_emb, lig_emb, labels, rec_kpm, lig_kpm) in enumerate(judith_test_loader):
             if rec_emb is None or lig_emb is None or labels is None:
                 # skip this batch due to missing embeddings
                 falsy_idxs.extend([idx*4, idx*4+1, idx*4+2, idx*4+3])  # approximate batch size of 4
                 continue
 
-            rec_emb, lig_emb, labels = rec_emb.to(device), lig_emb.to(device), labels.to(device)
+            rec_emb, lig_emb, labels, rec_kpm, lig_kpm = rec_emb.to(device), lig_emb.to(device), labels.to(device), rec_kpm.to(device), lig_kpm.to(device)
 
             labels = labels.float()  # Convert labels to float for BCELoss
 
-            logits = model(rec_emb, lig_emb)
+            if model.residue:
+                logits = model(rec_emb, lig_emb, rec_kpm, lig_kpm)
+            else:
+                logits = model(rec_emb, lig_emb)
 
             # Accuracy
             probs = torch.sigmoid(logits)
@@ -767,35 +812,49 @@ def main():
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description="Test ML Architecture for Protein Interaction Prediction")
-    parser.add_argument('--token', type=str, default=None, required=True, help='Token for WandB login')
-    parser.add_argument('--path', type=str, default=None, required=True, help='Path to the dataset CSV file')
-    parser.add_argument('--cache_dir', type=str, default=None, help='Path to the embedding cache directory')
-    parser.add_argument('--epochs', type=int, default=5, help='Number of training epochs')
-    parser.add_argument('--model', type=str, required=True, help='Model architecture to use')
+
+    # basics
+    parser.add_argument('--path', type=str, help='Path to the dataset CSV file',
+                        default="/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced")
+    parser.add_argument('--model', type=str, choices=["baseline2d", "LinearFC"], help='Model architecture to use',
+                        default="LinearFC")
+    parser.add_argument('--encoding', type=str, choices=['one_hot', 'residue', 'mean'], help='Type of sequence encoding to use',
+                        default='mean')
+    parser.add_argument('--cache_dir', type=str, help='Path to the embedding cache directory',
+                        default="/nfs/scratch/pinder/negative_dataset/my_repository/embeddings/sequence/ESM2/pinder/mean")
+
+    # hyperparameters
+    parser.add_argument('--epochs', type=int, default=20, help='Number of training epochs')
+    parser.add_argument('--batch_size', type=int, default=4, help='Batch size for training and testing')
+    parser.add_argument('--learning_rate', type=float, default=1e-4, help='Learning rate for optimizer')
+    parser.add_argument('--weight_decay', type=float, default=1e-5, help='Weight decay (L2 regularization) for optimizer')
+    parser.add_argument('--dropout', type=float, default=0.5, help='Dropout rate for the model')
+
+    # other options
     parser.add_argument('--random_forest', action='store_true', help='If set, run Random Forest classifier instead of NN')
     parser.add_argument('--lrp', action='store_true', help='If set, perform LRP analysis after testing')
     parser.add_argument('--judith_test', type=str, help='If set, use Judith gold standard test set')
-    parser.add_argument('--limit_training', type=int, default=None, help='Limit the number of training samples (for quick tests)')
-    parser.add_argument('--residue', action='store_true', help='Use residue-level embeddings instead of mean embeddings')
-    parser.add_argument('--one_hot', action='store_true', help='Use one-hot encoding instead of embeddings')
+    parser.add_argument('--limit_training', type=int, help='Limit the number of training samples (for quick tests)')
 
     args = parser.parse_args()
 
     # global
     global AA_ALPHABET, aa_to_idx
 
-    # Define the amino acid alphabet (can adapt if you want gaps, X, etc.)
+    # Define the amino acid alphabet
     AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXBUZO"  # 23 characters
     aa_to_idx = {aa: i for i, aa in enumerate(AA_ALPHABET)}
     
     # set embedding type
-    if args.residue:
+    if args.encoding == "residue":
         embedding_type = "residue"
-    else:
+    elif args.encoding == "mean":
         embedding_type = "mean"
+    else:
+        embedding_type = "one_hot"
     
     # print encoding type
-    if not args.one_hot:
+    if embedding_type != "one_hot":
         print(f"Using {embedding_type} embeddings\n")
         print(f"Using embedding cache dir: {args.cache_dir}\n")
     else:
@@ -811,7 +870,7 @@ def main():
 
     # !!!!arguments not sure what will happen with in the future!!!!
     kernel_size = 2  # Default kernel size, can be adjusted
-    wandb_mode = "disabled"  # Change to "online" to enable WandB logging, "disabled" to disable it
+    wandb_mode = "online"  # Change to "online" to enable WandB logging, "disabled" to disable it
 
     # execute random forest if specified
     if args.random_forest:
@@ -819,19 +878,18 @@ def main():
         sys.exit(0)
 
     # Fit training limit to batch size
-    batch_size = 4
     if args.limit_training is not None:
-        args.limit_training = args.limit_training // batch_size
+        args.limit_training = args.limit_training // args.batch_size
 
     # PIPELINE
-    device, run, train_loader, val_loader, test_loader, judith_test_loader = setup(args.path, args.cache_dir, train_csv, val_csv, test_csv, args.residue, args.one_hot, kernel_size, wandb_mode, args.epochs, args.model, batch_size, args.judith_test)
-    model, optimizer, criterion = setup_model(train_loader, device, run, args.residue, args.model)
+    device, run, train_loader, val_loader, test_loader, judith_test_loader = setup(args.path, args.cache_dir, train_csv, val_csv, test_csv, args.encoding, kernel_size, wandb_mode, args.epochs, args.model, args.batch_size, args.judith_test, args.learning_rate, args.weight_decay, args.dropout)
+    model, optimizer, criterion = setup_model(train_loader, device, run, args.encoding, args.model)
     train(device, run, model, optimizer, criterion, train_loader, val_loader, args.limit_training)
     all_probs, all_preds, all_labels, all_classes, falsy_idxs = test(device, model, test_loader)
 
     # Save predictions to CSV file
-    if not args.one_hot:
-        encoding = "residue" if args.residue else "mean"
+    if args.encoding != "one_hot":
+        encoding = "residue" if args.encoding == "residue" else "mean"
         if encoding == "mean":
             if "ESM3" in args.cache_dir:
                 encoding = "mean_ESM3"
@@ -846,7 +904,7 @@ def main():
                 encoding = "residue_ESM2"
             if "sequence_structure" in args.cache_dir:
                 encoding += "_structure"
-    encoding = "one_hot" if args.one_hot else encoding
+    encoding = "one_hot" if args.encoding == "one_hot" else encoding
     test_df = pd.read_csv(os.path.join(args.path, "test.csv"))
     with open(os.path.join(args.path, f"test_predictions_{args.model}_{encoding}.txt"), "w") as f:
         f.write("entry,probability,prediction,label,class,model_name,time_stamp\n")
