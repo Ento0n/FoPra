@@ -278,6 +278,9 @@ def setup_model(train_loader, device, run, encoding, model_name):
 
     print(model)
 
+    n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Trainable parameters: {n_params:,}")
+
     # Initialize optimizer and loss function
     optimizer = optim.Adam(model.parameters(), lr=run.config.learning_rate, weight_decay=run.config.weight_decay)
 
