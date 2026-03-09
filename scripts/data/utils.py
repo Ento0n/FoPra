@@ -4,6 +4,7 @@ import os
 import argparse
 from collections import Counter
 import random
+from itertools import combinations_with_replacement
 
 # self interactions doesn't consider duplicate interactions
 def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = True, self_interactions: bool = False) -> pd.DataFrame:
@@ -22,35 +23,28 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
         pd.DataFrame: DataFrame of negative pairs.
     """
 
-    # all positives
-    positives = set(zip(df['receptor_seq'], df['ligand_seq']))
-
-    # receptor
-    rec_counter = Counter(df['receptor_seq'])
-    rec_seqs    = list(rec_counter.keys())
-    rec_weights = [rec_counter[s] for s in rec_seqs]
-
-    # ligand
-    lig_counter = Counter(df['ligand_seq'])
-    lig_seqs    = list(lig_counter.keys())
-    lig_weights = [lig_counter[s] for s in lig_seqs]
-
-    # Add as many self interactions as possible (depends on how many sequences are not already self interacting in positives)
-    # Implemented for unique self interactions only (A-A once, B-B once, no duplicates)
     neg_records = []
     neg_set = set()
-    target_self_interactions = 0
-    i = 0
+
+    # ============================================================.Self Int Part =======================================================================
+    # Add as many self interactions as possible (depends on how many sequences are not already self interacting in positives)
+    # Implemented for unique self interactions only (A-A once, B-B once, no duplicates), uniprot IDs can be equal but sequences different
+
     if self_interactions:
-        # extract the different sequences associated to a uniprot ID not in positives self interactions
+        target_self_interactions = 0
+        i = 0
+
+        # ========= extract the different sequences associated to a uniprot ID not in positives self interactions =========
         uni_id_to_seqs = {}
         self_interacting_uni_ids = set()
         blacklist_uni_seqs = set()
+        self_int_counter = 0
         for _, row in df.iterrows():
             uni_rec = row['entry'].split('--')[0].split('_')[-1]
             uni_lig = row['entry'].split('--')[1].split('_')[-1]
 
             if uni_rec == uni_lig:
+                self_int_counter += 1
                 # Add to self interacting uniprot IDs and blacklist
                 self_interacting_uni_ids.add(uni_rec)
                 blacklist_uni_seqs.add(row["receptor_seq"])
@@ -80,72 +74,124 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
         # uniprot IDs not self interacting
         non_self_interacting_uni_ids = set(uni_id_to_seqs.keys()) - self_interacting_uni_ids
 
+        # possible self interactions to add
+        possible_self_counter = 0
+        for uni_id in non_self_interacting_uni_ids:
+            seqs = list(uni_id_to_seqs[uni_id])
+            len_seqs = len(seqs)
+
+            possibles = len_seqs * (len_seqs + 1) // 2  # combinations with replacement
+            possible_self_counter += possibles
+
         print(f"# of unique uniprot IDs in positive self interactions: {len(self_interacting_uni_ids)}")
+        print(f"# of self interactions in positives: {self_int_counter}")
         print(f"# of possible non-self interacting uniprot IDs to add as negatives in split {split}: {len(non_self_interacting_uni_ids)}")
+        print(f"# of possible self interactions to add as negatives in split {split}: {possible_self_counter}")
         print(f"Sanity check - intersection: {self_interacting_uni_ids.intersection(non_self_interacting_uni_ids)}")
 
+        # remove excess self interactions if specified
+        if possible_self_counter < self_int_counter:
+            print(f"Removing excess self interactions in split {split} from {self_int_counter} to {possible_self_counter}...\n")
+
+            uni_rec = df["entry"].str.split("--").str[0].str.split("_").str[-1]
+            uni_lig = df["entry"].str.split("--").str[1].str.split("_").str[-1]
+            self_pos = df[uni_rec == uni_lig]
+            non_self = df[uni_rec != uni_lig]
+
+            self_pos = self_pos.sample(n=possible_self_counter, random_state=0)
+            df = pd.concat([non_self, self_pos], ignore_index=True)
+
+            # fit n_samples to new positives size
+            n_samples = len(df)
+            print(f"New positives size: {len(df)}, new negatives target size: {n_samples}\n")
+
         # go through non self interacting uniprot IDs and add their sequences as self interactions
-        target_self_interactions = min(len(non_self_interacting_uni_ids), len(self_interacting_uni_ids), n_samples)
+        target_self_interactions = min(possible_self_counter, self_int_counter, n_samples)
         print(f"Sampling {target_self_interactions} self-interacting negative samples for split {split}...")
-        while len(neg_records) < target_self_interactions:
-            uni_id = non_self_interacting_uni_ids.pop()
+        for uni_id in non_self_interacting_uni_ids:
+            if i >= target_self_interactions:
+                print(f"Reached target of {target_self_interactions} self interactions for split {split}.\n")
+                break
+
             seqs = list(uni_id_to_seqs[uni_id])
-            seq1 = random.choice(seqs)
-            seq2 = random.choice(seqs)
 
-            # create record with paths if available
-            if path:
-                rec_path_obj = df.loc[df['receptor_seq']==seq1, 'receptor_path']
-                lig_path_obj = df.loc[df['ligand_seq']==seq2,   'ligand_path']
-                
-                # seq1 and seq2 can be set that above leads to 2 empty path objs, need to check both
-                if rec_path_obj.empty and lig_path_obj.empty:
-                    rec_path_obj = df.loc[df['receptor_seq']==seq2, 'receptor_path']
-                    lig_path_obj = df.loc[df['ligand_seq']==seq1,   'ligand_path']
-
-                if not rec_path_obj.empty:
-                    rec_path = rec_path_obj.iat[0]
-                    lig_path = rec_path_obj.iat[0]
-                elif not lig_path_obj.empty:
-                    rec_path = lig_path_obj.iat[0]
-                    lig_path = lig_path_obj.iat[0]
-                else:
-                    print(f"Warning: Could not find path for self-interacting sequence {seq1} or {seq2} in split {split}. Paths will be set to None.")
-                    rec_path = None
-                    lig_path = None
-                
-                i += 1
-                neg_records.append({
-                    'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
-                    'split': split,
-                    'receptor_seq': seq1,
-                    'ligand_seq':  seq2,
-                    'receptor_path': rec_path,
-                    'ligand_path':  lig_path,
-                    'label': 0
-                })
+            # create all combinations with replacement
+            if len(seqs) == 1:
+                combs = [(seqs[0], seqs[0])]
             else:
-                i += 1
-                neg_records.append({
-                    'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
-                    'split': split,
-                    'receptor_seq': seq1,
-                    'ligand_seq':  seq2,
-                    'label': 0
-                })
-            
-            neg_set.add((seq1, seq2))
+                combs = list(combinations_with_replacement(seqs, 2))
+                random.shuffle(combs)
 
-            # reduce weights accordingly
-            if seq1 in rec_seqs:
-                rec_index = rec_seqs.index(seq1)
-                rec_weights[rec_index] = max(0, rec_weights[rec_index] - 1)
-            
-            if seq2 in lig_seqs:
-                lig_index = lig_seqs.index(seq2)
-                lig_weights[lig_index] = max(0, lig_weights[lig_index] - 1)
+            for comb in combs:
+                if i >= target_self_interactions:
+                    print(f"Reached target of {target_self_interactions} self interactions for split {split}.\n")
+                    break
+
+                seq1, seq2 = comb
+
+                # create record with paths if available
+                if path:
+                    rec_path_obj = df.loc[df['receptor_seq']==seq1, 'receptor_path']
+                    lig_path_obj = df.loc[df['ligand_seq']==seq2,   'ligand_path']
+                    
+                    # seq1 and seq2 can be set that above leads to 2 empty path objs, need to check both
+                    if rec_path_obj.empty and lig_path_obj.empty:
+                        rec_path_obj = df.loc[df['receptor_seq']==seq2, 'receptor_path']
+                        lig_path_obj = df.loc[df['ligand_seq']==seq1,   'ligand_path']
+
+                    if not rec_path_obj.empty:
+                        rec_path = rec_path_obj.iat[0]
+                        lig_path = rec_path_obj.iat[0]
+                    elif not lig_path_obj.empty:
+                        rec_path = lig_path_obj.iat[0]
+                        lig_path = lig_path_obj.iat[0]
+                    else:
+                        print(f"Warning: Could not find path for self-interacting sequence {seq1} or {seq2} in split {split}. Paths will be set to None.")
+                        rec_path = None
+                        lig_path = None
+                    
+                    neg_records.append({
+                        'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
+                        'split': split,
+                        'receptor_seq': seq1,
+                        'ligand_seq':  seq2,
+                        'receptor_path': rec_path,
+                        'ligand_path':  lig_path,
+                        'label': 0
+                    })
+                else:
+                    neg_records.append({
+                        'entry': "XXXX__XX_" + uni_id + '--' + "XXXX__XX_" + uni_id,
+                        'split': split,
+                        'receptor_seq': seq1,
+                        'ligand_seq':  seq2,
+                        'label': 0
+                    })
+                
+                i += 1
+                neg_set.add((seq1, seq2))
     
-    print(f"Counter i is {i}, expected {target_self_interactions}")
+        print(f"Counter i is {i}, expected {target_self_interactions}")
+
+    # ====================================================== Non self part =============================================================================
+
+    # all positives
+    positives = set(zip(df['receptor_seq'], df['ligand_seq']))
+
+    # initialize weights based on frequency in positives, but consider negatives already added
+    rec_counter = Counter(df['receptor_seq'])
+    lig_counter = Counter(df['ligand_seq'])
+    
+    for rec_seq, lig_seq in neg_set:
+        if rec_seq in rec_counter:
+            rec_counter[rec_seq] = max(0, rec_counter[rec_seq] - 1)
+        if lig_seq in lig_counter:
+            lig_counter[lig_seq] = max(0, lig_counter[lig_seq] - 1)
+    
+    rec_seqs = list(rec_counter.keys())
+    rec_weights = [rec_counter[seq] for seq in rec_seqs]
+    lig_seqs = list(lig_counter.keys())
+    lig_weights = [lig_counter[seq] for seq in lig_seqs]
 
     # sample not self interacting until n_samples is reached
     print(f"Sampling remaining {n_samples - len(neg_records)} negative samples for split {split}...\n")
@@ -191,6 +237,9 @@ def sample_negatives(df: pd.DataFrame, split: str, n_samples: int, path: bool = 
             })
             neg_set.add((rec_seq, lig_seq))
 
+    if self_interactions:
+        return pd.concat([pd.DataFrame(neg_records), df], ignore_index=True)
+
     return pd.DataFrame(neg_records)
 
 def resample_negatives(path: str, half_balance: bool) -> None:
@@ -234,37 +283,24 @@ def completely_balanced_splits(path: str, out_path: str):
     val = val[val["label"] == 1]
     test = test[test["label"] == 1]
 
-    def remove_excess_self_interactions(df: pd.DataFrame, split_name: str) -> pd.DataFrame:
-        uni_rec = df["entry"].str.split('--').str[0].str.split('_').str[-1]
-        uni_lig = df["entry"].str.split('--').str[1].str.split('_').str[-1]
+    # remove all interactions with UNDEFINED uniprot IDs
+    def filter_undefined_uniprot_ids(df: pd.DataFrame, split_name: str) -> pd.DataFrame:
+        mask_rec_undefined = df["entry"].str.split('--').str[0].str.split('_').str[-1] == "UNDEFINED"
+        mask_lig_undefined = df["entry"].str.split('--').str[1].str.split('_').str[-1] == "UNDEFINED"
+        combined_mask = mask_rec_undefined | mask_lig_undefined
+        filtered_df = df[~combined_mask].reset_index(drop=True)
+        print(f"{split_name} positive size before removing UNDEFINED uniprot IDs: {len(df)}")
+        print(f"{split_name} positive size after removing UNDEFINED uniprot IDs: {len(filtered_df)}\n")
+        return filtered_df
 
-        self_interacting = df[uni_rec == uni_lig]
-
-        uni_ids_self = set(uni_rec[uni_rec == uni_lig].unique())
-        uni_ids_nonself = set(uni_rec).union(set(uni_lig)) - uni_ids_self
-
-        if len(uni_ids_self) > len(uni_ids_nonself):
-            print(f"{split_name} has {len(uni_ids_self)} self interacting uniprot IDs and {len(uni_ids_nonself)} non-self interacting uniprot IDs.")
-            print(f"Sampling {len(uni_ids_nonself)} self interacting uniprot IDs to balance.")
-            sampled_uni_ids = random.sample(list(uni_ids_self), k=len(uni_ids_nonself))
-            self_interacting = self_interacting[uni_rec.isin(sampled_uni_ids)]
-            df = pd.concat([self_interacting, df[uni_rec != uni_lig]], ignore_index=True)
-            print(f"Now {split_name} has {len(uni_ids_nonself)} self interacting uniprot IDs in positive.\n")
-        
-        return df
-
-    train = remove_excess_self_interactions(train, "Train")
-    val = remove_excess_self_interactions(val, "Val")
-    test = remove_excess_self_interactions(test, "Test")
+    train = filter_undefined_uniprot_ids(train, "Train")
+    val = filter_undefined_uniprot_ids(val, "Val")
+    test = filter_undefined_uniprot_ids(test, "Test")
 
     # resample negatives
-    train_neg = sample_negatives(train, "train", len(train), self_interactions=True)
-    val_neg = sample_negatives(val, "val", len(val), self_interactions=True)
-    test_neg = sample_negatives(test, "test", len(test), self_interactions=True)
-
-    train = pd.concat([train, train_neg], ignore_index=True)
-    val = pd.concat([val, val_neg], ignore_index=True)
-    test = pd.concat([test, test_neg], ignore_index=True)
+    train = sample_negatives(train, "train", len(train), self_interactions=True)
+    val = sample_negatives(val, "val", len(val), self_interactions=True)
+    test = sample_negatives(test, "test", len(test), self_interactions=True)
 
     # add test classes right away
     test = add_test_classes(df=test)
