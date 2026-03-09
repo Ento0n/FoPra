@@ -1,4 +1,4 @@
-# Pinder Negative Dataset Experiments
+# Do Structural Embeddings Improve Multi-Species PPI Prediction? A Leakage-Controlled Study
 
 This repository contains a protein-protein interaction workflow built around Pinder-derived datasets. It covers three main steps:
 
