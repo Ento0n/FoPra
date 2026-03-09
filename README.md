@@ -59,7 +59,6 @@ python scripts/data/generate_embeddings.py \
   --path datasets/my_split \
   --model esm2 \
   --out_path embeddings/sequence/ESM2/my_split/mean \
-  --token <hf_token>
 ```
 
 Train and test `LinearFC` on mean embeddings:
