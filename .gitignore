@@ -7,9 +7,11 @@
 /scripts/logs
 /scripts/data/logs
 /scripts/wandb
+/scripts/models/TUnA/logs
 
 # pycache
 /scripts/models/__pycache__
+/scripts/models/TUnA/__pycache__
 
 # slurm run files
 *.sh
