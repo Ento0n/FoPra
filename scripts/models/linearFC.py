@@ -29,13 +29,14 @@ class disabled_LinearFC(nn.Module):
 class LinearFC(nn.Module):
     def __init__(self, input_dim, dropout=0.5):
         super().__init__()
+
+        self.residue = False
+
         self.fc = nn.Sequential(
             nn.Linear(input_dim, 1024),
-            nn.BatchNorm1d(1024),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
             nn.Linear(1024, 512),
-            nn.BatchNorm1d(512),
             nn.ReLU(inplace=True),
             nn.Dropout(dropout),
             nn.Linear(512, 1),  # Output single value for binary classification
