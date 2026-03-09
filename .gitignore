@@ -6,9 +6,10 @@
 /logs
 /scripts/logs
 /scripts/data/logs
+/scripts/wandb
 
 # pycache
-/models/pycache
+/scripts/models/__pycache__
 
 # slurm run files
 *.sh
