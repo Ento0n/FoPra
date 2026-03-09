@@ -12,6 +12,7 @@ import torch.optim as optim
 import torch.nn.functional as F
 import wandb
 from models.linearFC import LinearFC
+from models.tuna_timo import TUnA
 from functools import partial
 from sklearn.metrics import confusion_matrix
 import matplotlib.pyplot as plt
@@ -214,7 +215,7 @@ def collate_fn(batch, test, cache_dir, encoding, model_name, kernel_size, pad_re
         recs = [F.pad(rec, (0, 0, 0, pad_rec_len - rec.size(0))) for rec in recs] # (Lr, A) -> (padded_Lr, A)
         ligs = [F.pad(lig, (0, 0, 0, pad_lig_len - lig.size(0))) for lig in ligs] # (Ll, A) -> (padded_Ll, A)
 
-        if model_name != "baseline2d":
+        if model_name == "LinearFC":
             # flatten the one hot encoding and stack batch in 1 tensor
             recs = torch.stack([torch.flatten(rec) for rec in recs]) # (B, A * padded_Lr)
             ligs = torch.stack([torch.flatten(lig) for lig in ligs]) # (B, A * padded_Ll)
@@ -223,6 +224,10 @@ def collate_fn(batch, test, cache_dir, encoding, model_name, kernel_size, pad_re
             ligs = torch.stack(ligs)  # (B, padded_Ll, A)
     
     # after you know pad_rec_len, pad_lig_len
+    if pad_rec_len is None:
+        pad_rec_len = int(rec_lens.max().item())
+    if pad_lig_len is None:
+        pad_lig_len = int(lig_lens.max().item())
     rec_kpm = torch.arange(pad_rec_len).unsqueeze(0) >= rec_lens.unsqueeze(1)  # (B, pad_rec_len) bool
     lig_kpm = torch.arange(pad_lig_len).unsqueeze(0) >= lig_lens.unsqueeze(1)  # (B, pad_lig_len) bool
 
@@ -255,6 +260,9 @@ def setup_model(train_loader, device, run, encoding, model_name):
     elif model_name == "LinearFC":
         rec_emb_sample, lig_emb_sample, _, _, _ = next(iter(train_loader))
         embed_dim = rec_emb_sample.size(1) + lig_emb_sample.size(1)  # Assuming the embedding dimension is the second dimension
+    elif model_name == "tuna_timo":
+        rec_emb_sample, lig_emb_sample, _, _, _ = next(iter(train_loader))
+        embed_dim = rec_emb_sample.size(2)  # Assuming the embedding dimension is the third dimension
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
@@ -263,6 +271,8 @@ def setup_model(train_loader, device, run, encoding, model_name):
     elif model_name == "baseline2d":
         from models.baseline_fc_conv import baseline2d
         model = baseline2d(embed_dim).to(device)
+    elif model_name == "tuna_timo":
+        model = TUnA(embed_dim, num_heads=8).to(device)
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
@@ -696,7 +706,7 @@ def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
     d_rec = None  # will be set from first batch
 
     with torch.no_grad():
-        for rec_emb, lig_emb, labels in test_loader:
+        for rec_emb, lig_emb, labels, _, _, _ in test_loader:
             if rec_emb is None or lig_emb is None or labels is None:
                 # skip this batch due to missing embeddings
                 continue
@@ -751,6 +761,12 @@ def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
 
     mean_pos = (pos_sum / max(pos_count, 1)).detach().cpu().numpy() if pos_count > 0 else None
     mean_neg = (neg_sum / max(neg_count, 1)).detach().cpu().numpy() if neg_count > 0 else None
+
+    out_dir = "/nfs/scratch/pinder/negative_dataset/my_repository/plots"
+    os.makedirs(out_dir, exist_ok=True)
+    np.save(os.path.join(out_dir, "lrp_total_mean.npy"), mean_all)
+    np.save(os.path.join(out_dir, "lrp_receptor_mean.npy"), mean_rec)
+    np.save(os.path.join(out_dir, "lrp_ligand_mean.npy"), mean_lig)
     
     # k highest influences
     k = 3
@@ -780,28 +796,19 @@ def exec_lrp_simple_interaction_net(model, device, test_loader, one_hot):
 
     # PLOTTING
 
-    out_dir = "/nfs/scratch/pinder/negative_dataset/my_repository/plots"
-    os.makedirs(out_dir, exist_ok=True)
-
     sns.set_theme()
 
-    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(10, 12), sharex=True, sharey=True)
+    palette = sns.color_palette("Set2", 2)
 
-    sns.lineplot(x=np.arange(len(mean_all)), y=mean_all, ax=axes[0], color="blue")
-    axes[0].set_title("Total Mean |R_in|")
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=(10, 12), sharex=True, sharey=True)
 
-    sns.lineplot(x=np.arange(len(mean_pos)), y=mean_pos, ax=axes[1], color="green")
-    axes[1].set_title("Positive Mean |R_in|")
+    sns.lineplot(x=np.arange(len(mean_rec)), y=mean_rec, ax=axes[0], color=palette[0])
+    axes[0].set_title("Receptor Relevance")
 
-    sns.lineplot(x=np.arange(len(mean_neg)), y=mean_neg, ax=axes[2], color="red")
-    axes[2].set_title("Negative Mean |R_in|")
-    axes[2].set_xlabel("Feature Index")
+    sns.lineplot(x=np.arange(len(mean_lig)), y=mean_lig, ax=axes[1], color=palette[1])
+    axes[1].set_title("Ligand Relevance")
 
-    for ax in axes:
-        ax.set_ylabel("Mean |R_in|")
-        ax.axvline(x=d_rec, color="black", linestyle=":", label="Receptor/Ligand Split")
-
-    plt.savefig(os.path.join(out_dir, "lrp_total_mean.png"))
+    plt.savefig(os.path.join(out_dir, "lrp_relevance_histograms.png"))
 
         
 
@@ -816,7 +823,7 @@ def main():
     # basics
     parser.add_argument('--path', type=str, help='Path to the dataset CSV file',
                         default="/nfs/scratch/pinder/negative_dataset/my_repository/datasets/no_duplicates/deleak_cdhit/fully_balanced")
-    parser.add_argument('--model', type=str, choices=["baseline2d", "LinearFC"], help='Model architecture to use',
+    parser.add_argument('--model', type=str, choices=["baseline2d", "LinearFC", "tuna_timo"], help='Model architecture to use',
                         default="LinearFC")
     parser.add_argument('--encoding', type=str, choices=['one_hot', 'residue', 'mean'], help='Type of sequence encoding to use',
                         default='mean')
@@ -842,7 +849,7 @@ def main():
     global AA_ALPHABET, aa_to_idx
 
     # Define the amino acid alphabet
-    AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXBUZO"  # 23 characters
+    AA_ALPHABET = "ACDEFGHIKLMNPQRSTVWYXBUZO"  # 25 characters
     aa_to_idx = {aa: i for i, aa in enumerate(AA_ALPHABET)}
     
     # set embedding type
@@ -934,7 +941,8 @@ def main():
     # LRP analysis if specified
     if args.lrp:
         print("Executing LRP on test set!!\n")
-        exec_lrp_simple_interaction_net(model, device, test_loader, args.one_hot)
+        one_hot = args.encoding == "one_hot"
+        exec_lrp_simple_interaction_net(model, device, test_loader, one_hot)
 
 if __name__ == "__main__":
     main()
