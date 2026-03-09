@@ -12,6 +12,8 @@ The main training entry point is `scripts/test_architecture.py`. It supports thr
 - `baseline2d`: 2D interaction model over residue-level features
 - `tuna_timo`: transformer-style interaction model over residue-level features
 
+![Description](plots/overview/Frame%201.png)
+
 ## Repository layout
 
 - `datasets/`: generated CSV splits and benchmark variants such as `no_duplicates/deleak_cdhit/fully_balanced`
