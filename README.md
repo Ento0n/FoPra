@@ -13,6 +13,7 @@ The main training entry point is `scripts/test_architecture.py`. It supports thr
 - `tuna_timo`: transformer-style interaction model over residue-level features
 
 ![Description](plots/overview/Frame%201.png)
+Overview of the study. (a) Dataset deleaking steps and embedding generation with one-hot, ESM2 and ESM3. For ESM3 structure-induced embeddings were also generated. (b) Accuracies for the different iterations of the dataset on the baseline model for mean embeddings during the deleaking process. Around 50\% was the targeted accuracy. The full sequences iteration is not associated with a number since it wasn't applied for the final dataset. (c) Accuracies of the different encodings achieved with the different models. The baseline processes mean embeddings, 2d-Crossattention and TUnA residue embeddings.
 
 ## Repository layout
 
